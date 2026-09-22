@@ -19,14 +19,26 @@ def iniciar_servidor_flask():
 class ManutencaoMobileApp(App):
 
   def build(self):
-    # Inicia o Flask em thread separada
     thread_servidor = threading.Thread(
         target=iniciar_servidor_flask, daemon=True
     )
     thread_servidor.start()
 
-    # Agenda a abertura da interface no Android ou Desktop
     if platform == "android":
+      # Solicita as permissões do sistema operacional na inicialização
+      try:
+        from android.permissions import request_permissions
+
+        permissoes = [
+            "android.permission.CAMERA",
+            "android.permission.READ_EXTERNAL_STORAGE",
+            "android.permission.WRITE_EXTERNAL_STORAGE",
+            "android.permission.READ_MEDIA_IMAGES",
+        ]
+        request_permissions(permissoes)
+      except Exception as erro:
+        print(f"Erro ao solicitar permissões: {erro}")
+
       Clock.schedule_once(self.carregar_webview_android, 2.5)
     else:
       import webbrowser
@@ -35,12 +47,7 @@ class ManutencaoMobileApp(App):
           lambda dt: webbrowser.open(f"http://{HOST}:{PORT}/"), 1.5
       )
 
-    # Retorna layout visual temporário para evitar que o Kivy encerre o processo
-    layout = BoxLayout(
-        orientation="vertical",
-        padding=40,
-        spacing=20,
-    )
+    layout = BoxLayout(orientation="vertical", padding=40, spacing=20)
     layout.add_widget(
         Label(
             text="Manutenção\n\nCarregando sistema, aguarde...",
