@@ -4,7 +4,6 @@ import os
 import sqlite3
 from flask import Flask, redirect, render_template_string, request, send_file, url_for
 
-# Suporte opcional a PDF via WeasyPrint quando rodar em servidores Linux/Desktop
 try:
   import weasyprint
 
@@ -14,7 +13,6 @@ except ImportError:
 
 app = Flask(__name__)
 
-# Define o caminho do banco de dados no diretório do app
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "manutencao.db")
 
@@ -50,31 +48,99 @@ def init_db():
 
 init_db()
 
-# ================= TEMPLATES HTML =================
+# ================= TEMPLATE BASE MODERNO =================
 BASE_HTML = """
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Manutenção</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Manutenção - Gestão Operacional</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
-        body { background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-        .navbar-brand { font-weight: 700; letter-spacing: 0.5px; }
-        .card { border: none; border-radius: 10px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.07); }
-        .badge-aberta { background-color: #ea580c; color: white; }
-        .badge-concluida { background-color: #16a34a; color: white; }
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1d4ed8;
+            --surface: #ffffff;
+            --background: #f8fafc;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+        }
+        body {
+            background-color: var(--background);
+            color: var(--text-main);
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .navbar-custom {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
+        }
+        .card-custom {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+        }
+        .stat-card {
+            border-radius: 12px;
+            padding: 16px;
+            border-left: 4px solid;
+            background: #ffffff;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+        }
+        .stat-total { border-left-color: #2563eb; }
+        .stat-aberta { border-left-color: #f59e0b; }
+        .stat-concluida { border-left-color: #10b981; }
+        .stat-financeiro { border-left-color: #6366f1; }
+        .badge-pill-aberta {
+            background-color: #fef3c7;
+            color: #b45309;
+            font-weight: 700;
+            padding: 6px 12px;
+            border-radius: 50px;
+        }
+        .badge-pill-concluida {
+            background-color: #d1fae5;
+            color: #047857;
+            font-weight: 700;
+            padding: 6px 12px;
+            border-radius: 50px;
+        }
+        .btn-action {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            min-height: 38px;
+            border-radius: 8px;
+            font-weight: 600;
+        }
+        .form-control, .form-select {
+            border-radius: 8px;
+            border: 1px solid #cbd5e1;
+            padding: 10px 14px;
+        }
+        .form-control:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+        }
     </style>
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4 shadow-sm">
+    <nav class="navbar navbar-dark navbar-custom sticky-top mb-4">
         <div class="container">
-            <a class="navbar-brand" href="/"><i class="bi bi-tools me-2"></i>Manutenção</a>
-            <div class="navbar-nav ms-auto">
-                <a class="nav-link text-white" href="/"><i class="bi bi-list-check me-1"></i>Painel Geral</a>
-                <a class="nav-link btn btn-primary text-white ms-2 px-3" href="/nova-os"><i class="bi bi-plus-circle me-1"></i>Nova Requisição</a>
+            <a class="navbar-brand d-flex align-items-center gap-2 fw-bold" href="/">
+                <i class="bi bi-tools text-primary fs-4"></i>
+                <span>Manutenção</span>
+            </a>
+            <div class="d-flex gap-2">
+                <a class="btn btn-primary btn-action px-3" href="/nova-os">
+                    <i class="bi bi-plus-lg"></i>
+                    <span>Nova OS</span>
+                </a>
             </div>
         </div>
     </nav>
@@ -85,99 +151,179 @@ BASE_HTML = """
 </html>
 """
 
+# ================= TELA PRINCIPAL (DASHBOARD) =================
 INDEX_HTML = (
     BASE_HTML
     + """
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <h3 class="fw-bold text-secondary mb-0">Ordens de Serviço</h3>
-    <a href="/nova-os" class="btn btn-primary"><i class="bi bi-plus-lg me-1"></i>Abrir Chamado</a>
+<!-- CARDS DE ESTATÍSTICAS -->
+<div class="row g-3 mb-4">
+    <div class="col-6 col-lg-3">
+        <div class="stat-card stat-total">
+            <div class="text-muted small text-uppercase fw-bold">Total de OS</div>
+            <div class="fs-3 fw-bold text-dark mt-1">{{ total_os }}</div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="stat-card stat-aberta">
+            <div class="text-muted small text-uppercase fw-bold">Chamados Abertos</div>
+            <div class="fs-3 fw-bold text-warning mt-1">{{ os_abertas }}</div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="stat-card stat-concluida">
+            <div class="text-muted small text-uppercase fw-bold">Concluídas</div>
+            <div class="fs-3 fw-bold text-success mt-1">{{ os_concluidas }}</div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="stat-card stat-financeiro">
+            <div class="text-muted small text-uppercase fw-bold">Total em Serviços</div>
+            <div class="fs-3 fw-bold text-primary mt-1">R$ {{ "%.2f" % faturamento_total }}</div>
+        </div>
+    </div>
 </div>
 
-<div class="card p-3">
+<!-- BARRA DE PESQUISA -->
+<div class="card-custom p-3 mb-4">
+    <div class="row align-items-center g-3">
+        <div class="col-12 col-md-6">
+            <div class="input-group">
+                <span class="input-group-text bg-white border-end-0"><i class="bi bi-search text-muted"></i></span>
+                <input type="text" id="filtroTabela" class="form-control border-start-0" placeholder="Filtrar por equipamento, operador ou solicitante..." onkeyup="filtrarOrdens()">
+            </div>
+        </div>
+        <div class="col-12 col-md-6 text-md-end text-muted small">
+            <i class="bi bi-clock-history me-1"></i> Listando ordens cadastradas
+        </div>
+    </div>
+</div>
+
+<!-- TABELA DE ORDENS -->
+<div class="card-custom overflow-hidden">
     <div class="table-responsive">
-        <table class="table table-hover align-middle mb-0">
+        <table class="table table-hover align-middle mb-0" id="tabelaOS">
             <thead class="table-light">
                 <tr>
-                    <th>Nº OS</th>
+                    <th class="ps-3">Nº OS</th>
                     <th>Equipamento / Local</th>
                     <th>Solicitante</th>
-                    <th>Operador</th>
+                    <th>Operador Técnico</th>
                     <th>Abertura</th>
-                    <th>Total</th>
+                    <th>Valor Total</th>
                     <th>Status</th>
-                    <th class="text-end">Ações</th>
+                    <th class="text-end pe-3">Ações</th>
                 </tr>
             </thead>
             <tbody>
                 {% for os in ordens %}
                 <tr>
-                    <td class="fw-bold">#{{ "%05d" % os['id'] }}</td>
-                    <td>{{ os['equipamento'] }}</td>
+                    <td class="ps-3 fw-bold text-primary">#{{ "%05d" % os['id'] }}</td>
+                    <td class="fw-semibold">{{ os['equipamento'] }}</td>
                     <td>{{ os['solicitante'] }}</td>
-                    <td>{{ os['operador'] or '<span class="text-muted">Aguardando</span>' }}</td>
-                    <td>{{ os['data_abertura'] }}</td>
-                    <td class="fw-bold text-success">
+                    <td>
+                        {% if os['operador'] %}
+                            <span class="fw-semibold">{{ os['operador'] }}</span>
+                        {% else %}
+                            <span class="text-muted fst-italic">Não atribuído</span>
+                        {% endif %}
+                    </td>
+                    <td class="small text-muted">{{ os['data_abertura'] }}</td>
+                    <td class="fw-bold text-dark">
                         {% if os['custo_total'] %}
                             R$ {{ "%.2f" % os['custo_total'] }}
                         {% else %}
-                            -
+                            <span class="text-muted">-</span>
                         {% endif %}
                     </td>
                     <td>
                         {% if os['status'] == 'ABERTA' %}
-                            <span class="badge badge-aberta">ABERTA</span>
+                            <span class="badge-pill-aberta"><i class="bi bi-hourglass-split me-1"></i>ABERTA</span>
                         {% else %}
-                            <span class="badge badge-concluida">CONCLUÍDA</span>
+                            <span class="badge-pill-concluida"><i class="bi bi-check-circle-fill me-1"></i>CONCLUÍDA</span>
                         {% endif %}
                     </td>
-                    <td class="text-end">
+                    <td class="text-end pe-3">
                         {% if os['status'] == 'ABERTA' %}
-                            <a href="/finalizar/{{ os['id'] }}" class="btn btn-sm btn-outline-warning"><i class="bi bi-check2-circle me-1"></i>Finalizar</a>
+                            <a href="/finalizar/{{ os['id'] }}" class="btn btn-sm btn-warning btn-action text-dark">
+                                <i class="bi bi-tools"></i> Finalizar
+                            </a>
                         {% else %}
-                            <a href="/recibo/{{ os['id'] }}" class="btn btn-sm btn-outline-info" title="Visualizar Recibo"><i class="bi bi-receipt"></i> Recibo</a>
+                            <a href="/recibo/{{ os['id'] }}" class="btn btn-sm btn-outline-primary btn-action" title="Abrir Recibo">
+                                <i class="bi bi-receipt"></i> Recibo
+                            </a>
                         {% endif %}
                     </td>
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="8" class="text-center py-4 text-muted">Nenhuma ordem de serviço cadastrada.</td>
+                    <td colspan="8" class="text-center py-5 text-muted">
+                        <i class="bi bi-inbox fs-1 d-block mb-2 text-secondary"></i>
+                        Nenhuma ordem de serviço cadastrada até o momento.
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
 </div>
+
+<script>
+function filtrarOrdens() {
+    let input = document.getElementById("filtroTabela");
+    let filter = input.value.toLowerCase();
+    let tr = document.getElementById("tabelaOS").getElementsByTagName("tr");
+
+    for (let i = 1; i < tr.length; i++) {
+        let textoLinha = tr[i].textContent || tr[i].innerText;
+        if (textoLinha.toLowerCase().indexOf(filter) > -1) {
+            tr[i].style.display = "";
+        } else {
+            tr[i].style.display = "none";
+        }
+    }
+}
+</script>
 {% endblock %}
 """
 )
 
+# ================= NOVA OS =================
 NOVA_OS_HTML = (
     BASE_HTML
     + """
 {% block content %}
 <div class="row justify-content-center">
-    <div class="col-lg-8">
-        <div class="card p-4">
-            <h4 class="fw-bold mb-3 text-primary"><i class="bi bi-file-earmark-plus me-2"></i>Nova Requisição de Manutenção</h4>
-            <p class="text-muted small">Preencha os dados do equipamento e a descrição do problema identificado.</p>
-            <hr>
+    <div class="col-12 col-md-8 col-lg-7">
+        <div class="card-custom p-4">
+            <div class="d-flex align-items-center gap-3 mb-3">
+                <div class="bg-primary text-white p-3 rounded-circle d-flex align-items-center justify-content-center" style="width: 48px; height: 48px;">
+                    <i class="bi bi-file-earmark-plus fs-4"></i>
+                </div>
+                <div>
+                    <h4 class="fw-bold mb-0">Nova Ordem de Serviço</h4>
+                    <span class="text-muted small">Abertura de chamado técnico corretivo ou preventivo</span>
+                </div>
+            </div>
+            <hr class="text-muted mb-4">
             <form method="POST">
                 <div class="mb-3">
-                    <label class="form-label fw-semibold">Equipamento / Máquina / Local:</label>
-                    <input type="text" name="equipamento" class="form-control" placeholder="Ex: Torno CNC, Bomba D'água, Quadro Elétrico" required>
+                    <label class="form-label fw-bold small text-uppercase">Equipamento / Máquina / Local:</label>
+                    <input type="text" name="equipamento" class="form-control" placeholder="Ex: Torno CNC, Gerador, Ar Condicionado" required autofocus>
                 </div>
                 <div class="mb-3">
-                    <label class="form-label fw-semibold">Solicitante (Nome / Setor):</label>
-                    <input type="text" name="solicitante" class="form-control" placeholder="Ex: Coordenação de Operações" required>
+                    <label class="form-label fw-bold small text-uppercase">Solicitante (Setor ou Responsável):</label>
+                    <input type="text" name="solicitante" class="form-control" placeholder="Ex: Coordenação de Manutenção" required>
                 </div>
                 <div class="mb-4">
-                    <label class="form-label fw-semibold">Descrição do Problema / Sintoma:</label>
-                    <textarea name="problema" rows="4" class="form-control" placeholder="Relate o defeito, ruídos ou inspeção necessária..." required></textarea>
+                    <label class="form-label fw-bold small text-uppercase">Descrição da Ocorrência / Defeito:</label>
+                    <textarea name="problema" rows="4" class="form-control" placeholder="Descreva os ruídos, paradas, códigos de erro ou inspeções necessárias..." required></textarea>
                 </div>
-                <div class="d-flex justify-content-between">
-                    <a href="/" class="btn btn-outline-secondary">Voltar</a>
-                    <button type="submit" class="btn btn-primary px-4"><i class="bi bi-check-lg me-1"></i>Salvar Chamado</button>
+                <div class="d-flex gap-2 justify-content-between pt-2">
+                    <a href="/" class="btn btn-outline-secondary btn-action px-4">Voltar</a>
+                    <button type="submit" class="btn btn-primary btn-action px-4">
+                        <i class="bi bi-save2"></i> Gravar Chamado
+                    </button>
                 </div>
             </form>
         </div>
@@ -187,66 +333,87 @@ NOVA_OS_HTML = (
 """
 )
 
+# ================= FINALIZAR OS =================
 FINALIZAR_OS_HTML = (
     BASE_HTML
     + """
 {% block content %}
 <div class="row justify-content-center">
-    <div class="col-lg-9">
-        <div class="card p-4">
-            <div class="d-flex justify-content-between align-items-center">
-                <h4 class="fw-bold text-success mb-0"><i class="bi bi-clipboard-check me-2"></i>Finalizar OS #{{ "%05d" % os['id'] }}</h4>
-                <span class="badge bg-warning text-dark">Aberta em: {{ os['data_abertura'] }}</span>
+    <div class="col-12 col-lg-8">
+        <div class="card-custom p-4">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div>
+                    <h4 class="fw-bold text-success mb-0"><i class="bi bi-check2-circle me-2"></i>Conclusão de Serviço</h4>
+                    <span class="text-muted small">Fechamento técnico da OS #{{ "%05d" % os['id'] }}</span>
+                </div>
+                <span class="badge bg-light text-dark border p-2 small">Aberta em: {{ os['data_abertura'] }}</span>
             </div>
-            <div class="alert alert-light border my-3">
-                <strong>Equipamento:</strong> {{ os['equipamento'] }} | <strong>Solicitante:</strong> {{ os['solicitante'] }}<br>
-                <strong>Problema Constatado:</strong> {{ os['problema'] }}
+
+            <div class="p-3 bg-light rounded-3 border mb-4">
+                <div class="row">
+                    <div class="col-12 col-md-6 mb-2 mb-md-0">
+                        <span class="text-muted small text-uppercase d-block fw-bold">Equipamento:</span>
+                        <strong class="text-dark">{{ os['equipamento'] }}</strong>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <span class="text-muted small text-uppercase d-block fw-bold">Solicitante:</span>
+                        <strong class="text-dark">{{ os['solicitante'] }}</strong>
+                    </div>
+                    <div class="col-12 mt-2 pt-2 border-top">
+                        <span class="text-muted small text-uppercase d-block fw-bold">Defeito Informado:</span>
+                        <span class="text-secondary">{{ os['problema'] }}</span>
+                    </div>
+                </div>
             </div>
+
             <form method="POST">
                 <div class="row g-3 mb-3">
-                    <div class="col-md-6">
-                        <label class="form-label fw-semibold">Operador Técnico Responsável:</label>
-                        <input type="text" name="operador" class="form-control" placeholder="Nome do operador técnico" required>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label fw-bold small text-uppercase">Operador Técnico:</label>
+                        <input type="text" name="operador" class="form-control" placeholder="Nome completo do executor" required autofocus>
                     </div>
-                    <div class="col-md-6">
-                        <label class="form-label fw-semibold">Data / Hora de Término:</label>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label fw-bold small text-uppercase">Data e Hora de Conclusão:</label>
                         <input type="text" name="data_finalizacao" class="form-control" value="{{ agora }}" required>
                     </div>
                 </div>
 
-                <div class="mb-3">
-                    <label class="form-label fw-semibold">Descrição do Serviço Executado:</label>
-                    <textarea name="servico_executado" rows="3" class="form-control" placeholder="Relate as manutenções, ajustes e trocas efetuadas..." required></textarea>
+                <div class="mb-4">
+                    <label class="form-label fw-bold small text-uppercase">Serviço Executado e Ajustes Realizados:</label>
+                    <textarea name="servico_executado" rows="3" class="form-control" placeholder="Descreva os procedimentos executados, calibragens e testes finais..." required></textarea>
                 </div>
 
-                <h5 class="fw-bold text-secondary mt-4 mb-2"><i class="bi bi-cash-stack me-2"></i>Peças, Insumos e Custos Operacionais</h5>
-                <div class="mb-3">
-                    <label class="form-label fw-semibold">Relação de Peças / Insumos Aplicados:</label>
-                    <input type="text" name="pecas" class="form-control" placeholder="Ex: Rolamento, Óleo lubrificante, Conectores">
+                <div class="card bg-white border p-3 mb-4 rounded-3 shadow-sm">
+                    <h6 class="fw-bold text-primary mb-3"><i class="bi bi-calculator me-1"></i> Peças, Mão de Obra e Fechamento</h6>
+                    <div class="mb-3">
+                        <label class="form-label small text-muted fw-bold text-uppercase">Relação de Peças / Insumos Usados:</label>
+                        <input type="text" name="pecas" class="form-control" placeholder="Ex: 2x Rolamentos, 1L Lubrificante, Vedações">
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-12 col-md-4">
+                            <label class="form-label small text-muted fw-bold">CUSTO PEÇAS (R$):</label>
+                            <input type="number" step="0.01" min="0" name="custo_pecas" id="custo_pecas" class="form-control fw-bold" value="0.00" oninput="calcularTotal()">
+                        </div>
+                        <div class="col-6 col-md-4">
+                            <label class="form-label small text-muted fw-bold">HORAS TÉCNICAS (h):</label>
+                            <input type="number" step="0.1" min="0" name="horas_trabalhadas" id="horas_trabalhadas" class="form-control fw-bold" value="1.0" oninput="calcularTotal()">
+                        </div>
+                        <div class="col-6 col-md-4">
+                            <label class="form-label small text-muted fw-bold">VALOR / HORA (R$):</label>
+                            <input type="number" step="0.01" min="0" name="valor_hora" id="valor_hora" class="form-control fw-bold" value="80.00" oninput="calcularTotal()">
+                        </div>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center mt-3 pt-3 border-top">
+                        <span class="text-muted">Mão de Obra: <strong id="lbl_subtotal_mo" class="text-dark">R$ 80,00</strong></span>
+                        <span class="fs-5 text-primary">Custo Total: <strong id="lbl_total" class="fs-4">R$ 80,00</strong></span>
+                    </div>
                 </div>
 
-                <div class="row g-3 p-3 bg-light rounded border mb-4">
-                    <div class="col-md-4">
-                        <label class="form-label fw-semibold">Custo de Peças (R$):</label>
-                        <input type="number" step="0.01" min="0" name="custo_pecas" id="custo_pecas" class="form-control" value="0.00" oninput="calcularTotal()">
-                    </div>
-                    <div class="col-md-4">
-                        <label class="form-label fw-semibold">Horas Trabalhadas (h):</label>
-                        <input type="number" step="0.1" min="0" name="horas_trabalhadas" id="horas_trabalhadas" class="form-control" value="1.0" oninput="calcularTotal()">
-                    </div>
-                    <div class="col-md-4">
-                        <label class="form-label fw-semibold">Valor da Hora Técnica (R$):</label>
-                        <input type="number" step="0.01" min="0" name="valor_hora" id="valor_hora" class="form-control" value="80.00" oninput="calcularTotal()">
-                    </div>
-                    <div class="col-12 text-end pt-2">
-                        <span class="fs-5 me-2">Mão de Obra: <strong id="lbl_subtotal_mo">R$ 80,00</strong></span> | 
-                        <span class="fs-4 ms-2 text-primary">Total: <strong id="lbl_total">R$ 80,00</strong></span>
-                    </div>
-                </div>
-
-                <div class="d-flex justify-content-between">
-                    <a href="/" class="btn btn-outline-secondary">Voltar</a>
-                    <button type="submit" class="btn btn-success px-4"><i class="bi bi-printer me-1"></i>Concluir e Emitir Recibo</button>
+                <div class="d-flex justify-content-between pt-2">
+                    <a href="/" class="btn btn-outline-secondary btn-action px-4">Voltar</a>
+                    <button type="submit" class="btn btn-success btn-action px-4">
+                        <i class="bi bi-printer"></i> Finalizar & Emitir Recibo
+                    </button>
                 </div>
             </form>
         </div>
@@ -270,6 +437,7 @@ function calcularTotal() {
 """
 )
 
+# ================= TEMPLATE DE RECIBO A4 (2 VIAS) =================
 RECIBO_A4_HTML = """
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -287,7 +455,7 @@ RECIBO_A4_HTML = """
   }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    color: #1e293b;
+    color: #0f172a;
     margin: 0;
     padding: 0;
     font-size: 8.5pt;
@@ -296,19 +464,19 @@ RECIBO_A4_HTML = """
   .receipt-via {
     height: 134mm;
     border: 1px solid #cbd5e1;
-    border-radius: 4px;
-    padding: 8px 12px;
+    border-radius: 6px;
+    padding: 10px 14px;
     background: #ffffff;
   }
   .header-table {
     width: 100%;
-    border-bottom: 1.5px solid #0f172a;
+    border-bottom: 2px solid #0f172a;
     padding-bottom: 4px;
     margin-bottom: 6px;
   }
   .header-title {
     font-size: 11pt;
-    font-weight: 700;
+    font-weight: 800;
     color: #0f172a;
     text-transform: uppercase;
   }
@@ -317,17 +485,17 @@ RECIBO_A4_HTML = """
     background-color: #0f172a;
     color: #ffffff;
     font-size: 7.5pt;
-    font-weight: 600;
+    font-weight: 700;
     padding: 2px 8px;
     border-radius: 3px;
     text-transform: uppercase;
   }
   .badge-via.operador {
-    background-color: #0369a1;
+    background-color: #0284c7;
   }
   .os-number {
-    font-size: 11pt;
-    font-weight: 700;
+    font-size: 11.5pt;
+    font-weight: 800;
     color: #0f172a;
     text-align: right;
   }
@@ -337,7 +505,7 @@ RECIBO_A4_HTML = """
     margin-bottom: 6px;
   }
   .info-table td {
-    padding: 2px 4px;
+    padding: 3px 4px;
     vertical-align: top;
   }
   .label {
@@ -353,8 +521,8 @@ RECIBO_A4_HTML = """
   .box-section {
     background-color: #f8fafc;
     border: 1px solid #e2e8f0;
-    border-radius: 3px;
-    padding: 4px 6px;
+    border-radius: 4px;
+    padding: 5px 8px;
     margin-bottom: 5px;
   }
   .box-title {
@@ -380,31 +548,31 @@ RECIBO_A4_HTML = """
     background: #f1f5f9;
     color: #334155;
     text-align: left;
-    padding: 3px 5px;
+    padding: 4px 6px;
     font-size: 7pt;
     text-transform: uppercase;
-    border-bottom: 1px solid #cbd5e1;
+    border-bottom: 1.5px solid #cbd5e1;
   }
   .finance-table td {
-    padding: 3px 5px;
+    padding: 3px 6px;
     border-bottom: 1px solid #e2e8f0;
   }
   .finance-table tr.total-row td {
-    border-top: 1.5px solid #0f172a;
-    font-weight: 700;
+    border-top: 2px solid #0f172a;
+    font-weight: 800;
     font-size: 8.5pt;
     color: #0f172a;
     background: #f8fafc;
   }
   .signatures {
     width: 100%;
-    margin-top: 8px;
+    margin-top: 10px;
   }
   .sig-line {
     border-top: 1px solid #64748b;
     width: 80%;
     margin: 0 auto;
-    padding-top: 2px;
+    padding-top: 3px;
     font-size: 7pt;
     color: #475569;
     text-align: center;
@@ -427,7 +595,7 @@ RECIBO_A4_HTML = """
     display: inline-block;
     padding: 0 10px;
     font-size: 7.5pt;
-    font-weight: 600;
+    font-weight: 700;
     color: #64748b;
     text-transform: uppercase;
     letter-spacing: 1px;
@@ -439,11 +607,11 @@ RECIBO_A4_HTML = """
 </head>
 <body>
 
-<div class="no-print" style="background:#e0f2fe; padding:12px; margin-bottom:15px; border-radius:6px; text-align:center;">
-    <button onclick="window.print()" style="padding:7px 18px; font-weight:bold; cursor:pointer; background:#0284c7; color:#fff; border:none; border-radius:4px; font-size:10pt;">
+<div class="no-print" style="background:#e0f2fe; padding:12px; margin-bottom:15px; border-radius:8px; text-align:center;">
+    <button onclick="window.print()" style="padding:8px 20px; font-weight:bold; cursor:pointer; background:#0284c7; color:#fff; border:none; border-radius:6px; font-size:10pt;">
         🖨️ Imprimir Recibo / Salvar PDF
     </button>
-    <a href="/" style="margin-left:15px; font-size:9pt; color:#475569; text-decoration:none;">⬅ Voltar ao Painel</a>
+    <a href="/" style="margin-left:15px; font-size:9pt; color:#475569; text-decoration:none; font-weight:600;">⬅ Voltar ao Painel</a>
 </div>
 
 {% macro render_via(tipo, badge_class) %}
@@ -482,7 +650,7 @@ RECIBO_A4_HTML = """
         <span class="value">{{ os['solicitante'] }}</span>
       </td>
       <td colspan="2">
-        <span class="label">Operador Técnico:</span><br>
+        <span class="label">Operador Técnico Responsável:</span><br>
         <span class="value"><strong>{{ os['operador'] or 'Não atribuído' }}</strong></span>
       </td>
     </tr>
@@ -561,7 +729,23 @@ def index():
     ordens = conn.execute(
         "SELECT * FROM ordens_servico ORDER BY id DESC"
     ).fetchall()
-  return render_template_string(INDEX_HTML, ordens=ordens)
+
+    # Cálculo dos indicadores para os cards do topo
+    total_os = len(ordens)
+    os_abertas = sum(1 for o in ordens if o["status"] == "ABERTA")
+    os_concluidas = sum(1 for o in ordens if o["status"] == "CONCLUÍDA")
+    faturamento_total = sum(
+        (o["custo_total"] or 0.0) for o in ordens if o["status"] == "CONCLUÍDA"
+    )
+
+  return render_template_string(
+      INDEX_HTML,
+      ordens=ordens,
+      total_os=total_os,
+      os_abertas=os_abertas,
+      os_concluidas=os_concluidas,
+      faturamento_total=faturamento_total,
+  )
 
 
 @app.route("/nova-os", methods=["GET", "POST"])
@@ -670,7 +854,6 @@ def baixar_pdf(os_id):
         download_name=f"Recibo_OS_{os_id:05d}.pdf",
     )
   else:
-    # No celular/Android, renderiza com botão nativo de impressão
     return render_template_string(RECIBO_A4_HTML, os=os_item)
 
 
