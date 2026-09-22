@@ -13,8 +13,11 @@ except ImportError:
 
 app = Flask(__name__)
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, "manutencao.db")
+# No Android, utiliza o diretório interno gravável do aplicativo
+DIRETORIO_APP = os.environ.get(
+    "ANDROID_PRIVATE", os.path.dirname(os.path.abspath(__file__))
+)
+DB_PATH = os.path.join(DIRETORIO_APP, "manutencao.db")
 
 
 def get_db():
@@ -48,15 +51,14 @@ def init_db():
 
 init_db()
 
-# ================= DESIGN SYSTEM MATERIAL 3 EXPRESSIVE =================
+# ================= TEMPLATE BASE MATERIAL 3 EXPRESSIVE =================
 BASE_HTML = """
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Manutenção &bull; Material 3 Expressive</title>
-    <!-- Google Fonts & Material Symbols -->
+    <title>Manutenção</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -64,36 +66,24 @@ BASE_HTML = """
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         :root {
-            /* Tokens de Cor M3 Expressive (Tonal Palettes) */
             --md-sys-color-primary: #00639b;
             --md-sys-color-on-primary: #ffffff;
             --md-sys-color-primary-container: #cee5ff;
             --md-sys-color-on-primary-container: #001d33;
-
             --md-sys-color-secondary-container: #d9e3f8;
             --md-sys-color-on-secondary-container: #121c2b;
-
             --md-sys-color-tertiary-container: #f7d8ff;
             --md-sys-color-on-tertiary-container: #2b0042;
-
             --md-sys-color-surface: #f8f9ff;
             --md-sys-color-surface-container-low: #f2f3f9;
             --md-sys-color-surface-container: #eceef4;
-            --md-sys-color-surface-container-high: #e6e8ee;
             --md-sys-color-on-surface: #191c20;
             --md-sys-color-on-surface-variant: #43474e;
-            --md-sys-color-outline: #73777f;
             --md-sys-color-outline-variant: #c3c7d0;
-
             --md-sys-color-warning-container: #ffe08b;
             --md-sys-color-on-warning-container: #241a00;
-
             --md-sys-color-success-container: #b4f3b7;
             --md-sys-color-on-success-container: #002107;
-
-            /* Expressive Shapes */
-            --md-shape-xs: 8px;
-            --md-shape-sm: 12px;
             --md-shape-md: 16px;
             --md-shape-lg: 24px;
             --md-shape-xl: 32px;
@@ -115,7 +105,6 @@ BASE_HTML = """
             line-height: 1;
         }
 
-        /* M3 Top App Bar */
         .m3-top-app-bar {
             background: var(--md-sys-color-surface-container-low);
             padding: 14px 20px;
@@ -125,13 +114,11 @@ BASE_HTML = """
             border-bottom: 1px solid var(--md-sys-color-outline-variant);
         }
 
-        /* M3 Cards & Containers */
         .m3-card {
             background: #ffffff;
             border-radius: var(--md-shape-lg);
             border: 1px solid var(--md-sys-color-outline-variant);
             box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-            transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1), box-shadow 0.2s cubic-bezier(0.2, 0, 0, 1);
         }
 
         .m3-card-tonal {
@@ -140,34 +127,21 @@ BASE_HTML = """
             border: none;
         }
 
-        /* M3 Tonal Stat Cards */
         .m3-stat-box {
             border-radius: var(--md-shape-lg);
-            padding: 20px;
+            padding: 16px;
             display: flex;
             align-items: center;
-            gap: 16px;
+            gap: 14px;
         }
-        .m3-stat-primary {
-            background: var(--md-sys-color-primary-container);
-            color: var(--md-sys-color-on-primary-container);
-        }
-        .m3-stat-warning {
-            background: var(--md-sys-color-warning-container);
-            color: var(--md-sys-color-on-warning-container);
-        }
-        .m3-stat-success {
-            background: var(--md-sys-color-success-container);
-            color: var(--md-sys-color-on-success-container);
-        }
-        .m3-stat-tertiary {
-            background: var(--md-sys-color-tertiary-container);
-            color: var(--md-sys-color-on-tertiary-container);
-        }
+        .m3-stat-primary { background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); }
+        .m3-stat-warning { background: var(--md-sys-color-warning-container); color: var(--md-sys-color-on-warning-container); }
+        .m3-stat-success { background: var(--md-sys-color-success-container); color: var(--md-sys-color-on-success-container); }
+        .m3-stat-tertiary { background: var(--md-sys-color-tertiary-container); color: var(--md-sys-color-on-tertiary-container); }
 
         .m3-icon-badge {
-            width: 48px;
-            height: 48px;
+            width: 44px;
+            height: 44px;
             border-radius: var(--md-shape-md);
             background: rgba(255, 255, 255, 0.45);
             display: flex;
@@ -175,7 +149,6 @@ BASE_HTML = """
             justify-content: center;
         }
 
-        /* M3 Badges */
         .m3-badge-aberta {
             background-color: var(--md-sys-color-warning-container);
             color: var(--md-sys-color-on-warning-container);
@@ -199,7 +172,6 @@ BASE_HTML = """
             gap: 4px;
         }
 
-        /* M3 Inputs */
         .m3-input {
             background: var(--md-sys-color-surface-container-low);
             border: 1px solid var(--md-sys-color-outline-variant);
@@ -207,7 +179,6 @@ BASE_HTML = """
             padding: 12px 16px;
             color: var(--md-sys-color-on-surface);
             font-weight: 500;
-            transition: all 0.2s ease;
         }
         .m3-input:focus {
             background: #ffffff;
@@ -216,7 +187,6 @@ BASE_HTML = """
             outline: none;
         }
 
-        /* M3 Extended FAB (Floating Action Button) */
         .m3-fab {
             position: fixed;
             bottom: 24px;
@@ -230,19 +200,12 @@ BASE_HTML = """
             font-weight: 700;
             display: flex;
             align-items: center;
-            gap: 12px;
+            gap: 10px;
             box-shadow: 0 6px 16px rgba(0,0,0,0.14);
             text-decoration: none;
             z-index: 1050;
-            transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
-        }
-        .m3-fab:hover {
-            transform: scale(1.04);
-            box-shadow: 0 8px 24px rgba(0,0,0,0.2);
-            color: var(--md-sys-color-on-primary-container);
         }
 
-        /* Botões M3 */
         .m3-btn-filled {
             background-color: var(--md-sys-color-primary);
             color: var(--md-sys-color-on-primary);
@@ -254,13 +217,7 @@ BASE_HTML = """
             align-items: center;
             gap: 8px;
             text-decoration: none;
-            transition: opacity 0.2s;
         }
-        .m3-btn-filled:hover {
-            opacity: 0.92;
-            color: #ffffff;
-        }
-
         .m3-btn-tonal {
             background-color: var(--md-sys-color-secondary-container);
             color: var(--md-sys-color-on-secondary-container);
@@ -273,18 +230,13 @@ BASE_HTML = """
             gap: 6px;
             text-decoration: none;
         }
-        .m3-btn-tonal:hover {
-            filter: brightness(0.96);
-            color: var(--md-sys-color-on-secondary-container);
-        }
     </style>
 </head>
 <body>
-    <!-- Top Bar -->
     <header class="m3-top-app-bar mb-4">
         <div class="container d-flex justify-content-between align-items-center">
             <a href="/" class="text-decoration-none d-flex align-items-center gap-2">
-                <div class="m3-icon-badge" style="background: var(--md-sys-color-primary-container); width: 42px; height: 42px;">
+                <div class="m3-icon-badge" style="background: var(--md-sys-color-primary-container); width: 40px; height: 40px;">
                     <span class="material-symbols-rounded text-primary">handyman</span>
                 </div>
                 <div>
@@ -292,9 +244,9 @@ BASE_HTML = """
                     <span class="text-muted" style="font-size: 0.72rem; letter-spacing: 0.5px;">MATERIAL 3 EXPRESSIVE</span>
                 </div>
             </a>
-            <div class="d-none d-md-flex align-items-center gap-2">
-                <a href="/" class="m3-btn-tonal">
-                    <span class="material-symbols-rounded">dashboard</span> Painel
+            <div>
+                <a href="/" class="m3-btn-tonal d-none d-sm-inline-flex">
+                    <span class="material-symbols-rounded">dashboard</span> Início
                 </a>
             </div>
         </div>
@@ -304,7 +256,6 @@ BASE_HTML = """
         {% block content %}{% endblock %}
     </main>
 
-    <!-- Extended FAB para Abertura Rápida -->
     <a href="/nova-os" class="m3-fab">
         <span class="material-symbols-rounded">add</span>
         <span>Nova Requisição</span>
@@ -313,84 +264,66 @@ BASE_HTML = """
 </html>
 """
 
-# ================= DASHBOARD M3 =================
+# ================= PAINEL PRINCIPAL =================
 INDEX_HTML = (
     BASE_HTML
     + """
 {% block content %}
-<!-- INDICADORES TONAL CARDS M3 -->
 <div class="row g-3 mb-4">
     <div class="col-6 col-lg-3">
         <div class="m3-stat-box m3-stat-primary">
-            <div class="m3-icon-badge">
-                <span class="material-symbols-rounded fs-3">assignment</span>
-            </div>
+            <div class="m3-icon-badge"><span class="material-symbols-rounded fs-4">assignment</span></div>
             <div>
-                <div class="small fw-semibold text-uppercase" style="letter-spacing: 0.5px; opacity: 0.85;">Total OS</div>
-                <div class="fs-3 fw-bold">{{ total_os }}</div>
+                <div class="small fw-semibold text-uppercase" style="opacity: 0.85;">Total OS</div>
+                <div class="fs-4 fw-bold">{{ total_os }}</div>
             </div>
         </div>
     </div>
     <div class="col-6 col-lg-3">
         <div class="m3-stat-box m3-stat-warning">
-            <div class="m3-icon-badge">
-                <span class="material-symbols-rounded fs-3">pending_actions</span>
-            </div>
+            <div class="m3-icon-badge"><span class="material-symbols-rounded fs-4">pending_actions</span></div>
             <div>
-                <div class="small fw-semibold text-uppercase" style="letter-spacing: 0.5px; opacity: 0.85;">Abertas</div>
-                <div class="fs-3 fw-bold">{{ os_abertas }}</div>
+                <div class="small fw-semibold text-uppercase" style="opacity: 0.85;">Abertas</div>
+                <div class="fs-4 fw-bold">{{ os_abertas }}</div>
             </div>
         </div>
     </div>
     <div class="col-6 col-lg-3">
         <div class="m3-stat-box m3-stat-success">
-            <div class="m3-icon-badge">
-                <span class="material-symbols-rounded fs-3">task_alt</span>
-            </div>
+            <div class="m3-icon-badge"><span class="material-symbols-rounded fs-4">task_alt</span></div>
             <div>
-                <div class="small fw-semibold text-uppercase" style="letter-spacing: 0.5px; opacity: 0.85;">Concluídas</div>
-                <div class="fs-3 fw-bold">{{ os_concluidas }}</div>
+                <div class="small fw-semibold text-uppercase" style="opacity: 0.85;">Concluídas</div>
+                <div class="fs-4 fw-bold">{{ os_concluidas }}</div>
             </div>
         </div>
     </div>
     <div class="col-6 col-lg-3">
         <div class="m3-stat-box m3-stat-tertiary">
-            <div class="m3-icon-badge">
-                <span class="material-symbols-rounded fs-3">payments</span>
-            </div>
+            <div class="m3-icon-badge"><span class="material-symbols-rounded fs-4">payments</span></div>
             <div>
-                <div class="small fw-semibold text-uppercase" style="letter-spacing: 0.5px; opacity: 0.85;">Faturamento</div>
-                <div class="fs-4 fw-bold">R$ {{ "%.2f" % faturamento_total }}</div>
+                <div class="small fw-semibold text-uppercase" style="opacity: 0.85;">Total</div>
+                <div class="fs-5 fw-bold">R$ {{ "%.2f" % faturamento_total }}</div>
             </div>
         </div>
     </div>
 </div>
 
-<!-- BARRA DE PESQUISA COM M3 SEARCH FIELD -->
 <div class="m3-card p-3 mb-4">
-    <div class="row align-items-center g-3">
-        <div class="col-12 col-md-6">
-            <div class="d-flex align-items-center gap-2 bg-light px-3 rounded-pill border">
-                <span class="material-symbols-rounded text-secondary">search</span>
-                <input type="text" id="filtroM3" class="form-control border-0 bg-transparent py-2" placeholder="Buscar por máquina, operador ou solicitante..." onkeyup="filtrarOrdens()">
-            </div>
-        </div>
-        <div class="col-12 col-md-6 text-md-end text-muted small fw-semibold">
-            <span class="material-symbols-rounded fs-6 align-middle">tune</span> Filtro dinâmico em tempo real
-        </div>
+    <div class="d-flex align-items-center gap-2 bg-light px-3 rounded-pill border">
+        <span class="material-symbols-rounded text-secondary">search</span>
+        <input type="text" id="filtroM3" class="form-control border-0 bg-transparent py-2" placeholder="Buscar por equipamento, técnico ou solicitante..." onkeyup="filtrarOrdens()">
     </div>
 </div>
 
-<!-- LISTAGEM DE ORDENS EM CARDS / TABELA EXPRESSIVA -->
 <div class="m3-card overflow-hidden">
     <div class="table-responsive">
         <table class="table table-hover align-middle mb-0" id="tabelaM3">
             <thead style="background: var(--md-sys-color-surface-container-low);">
                 <tr class="small text-uppercase fw-bold text-secondary">
                     <th class="ps-4 py-3">Código</th>
-                    <th>Equipamento / Área</th>
+                    <th>Equipamento / Local</th>
                     <th>Solicitante</th>
-                    <th>Operador</th>
+                    <th>Operador Técnico</th>
                     <th>Abertura</th>
                     <th>Custo Total</th>
                     <th>Status</th>
@@ -407,7 +340,7 @@ INDEX_HTML = (
                         {% if os['operador'] %}
                             <span class="fw-semibold">{{ os['operador'] }}</span>
                         {% else %}
-                            <span class="text-muted fst-italic">Aguardando</span>
+                            <span class="text-muted fst-italic">Não atribuído</span>
                         {% endif %}
                     </td>
                     <td class="small text-muted">{{ os['data_abertura'] }}</td>
@@ -420,13 +353,9 @@ INDEX_HTML = (
                     </td>
                     <td>
                         {% if os['status'] == 'ABERTA' %}
-                            <span class="m3-badge-aberta">
-                                <span class="material-symbols-rounded fs-6">schedule</span> ABERTA
-                            </span>
+                            <span class="m3-badge-aberta"><span class="material-symbols-rounded fs-6">schedule</span> ABERTA</span>
                         {% else %}
-                            <span class="m3-badge-concluida">
-                                <span class="material-symbols-rounded fs-6">check</span> CONCLUÍDA
-                            </span>
+                            <span class="m3-badge-concluida"><span class="material-symbols-rounded fs-6">check</span> CONCLUÍDA</span>
                         {% endif %}
                     </td>
                     <td class="text-end pe-4">
@@ -435,7 +364,7 @@ INDEX_HTML = (
                                 <span class="material-symbols-rounded fs-6">build</span> Fechar
                             </a>
                         {% else %}
-                            <a href="/recibo/{{ os['id'] }}" class="m3-btn-filled py-1 px-3" style="background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container);" title="Visualizar Recibo">
+                            <a href="/recibo/{{ os['id'] }}" class="m3-btn-filled py-1 px-3" style="background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container);">
                                 <span class="material-symbols-rounded fs-6">receipt_long</span> Recibo
                             </a>
                         {% endif %}
@@ -445,7 +374,7 @@ INDEX_HTML = (
                 <tr>
                     <td colspan="8" class="text-center py-5 text-muted">
                         <span class="material-symbols-rounded fs-1 d-block mb-2 text-secondary">inbox</span>
-                        Nenhum registro encontrado no sistema.
+                        Nenhuma ordem de serviço cadastrada.
                     </td>
                 </tr>
                 {% endfor %}
@@ -474,7 +403,7 @@ function filtrarOrdens() {
 """
 )
 
-# ================= NOVA OS (MATERIAL 3) =================
+# ================= NOVA OS =================
 NOVA_OS_HTML = (
     BASE_HTML
     + """
@@ -488,30 +417,30 @@ NOVA_OS_HTML = (
                 </div>
                 <div>
                     <h4 class="fw-bold mb-0">Nova Requisição</h4>
-                    <span class="text-muted small">Abertura de chamado técnico de manutenção</span>
+                    <span class="text-muted small">Abertura de chamado de manutenção</span>
                 </div>
             </div>
 
             <form method="POST">
                 <div class="mb-3">
                     <label class="form-label small fw-bold text-uppercase text-secondary">Equipamento ou Local:</label>
-                    <input type="text" name="equipamento" class="form-control m3-input" placeholder="Ex: Torno CNC, Gerador Diesel, Split Sala 03" required autofocus>
+                    <input type="text" name="equipamento" class="form-control m3-input" placeholder="Ex: Torno CNC, Gerador Diesel, Split Sala 02" required autofocus>
                 </div>
 
                 <div class="mb-3">
                     <label class="form-label small fw-bold text-uppercase text-secondary">Solicitante:</label>
-                    <input type="text" name="solicitante" class="form-control m3-input" placeholder="Ex: Robson Cadete (Operações)" required>
+                    <input type="text" name="solicitante" class="form-control m3-input" placeholder="Ex: Coordenação de Manutenção" required>
                 </div>
 
                 <div class="mb-4">
-                    <label class="form-label small fw-bold text-uppercase text-secondary">Sintoma / Descrição da Falha:</label>
-                    <textarea name="problema" rows="4" class="form-control m3-input" placeholder="Descreva os ruídos, códigos de alarme ou motivo da intervenção preventiva..." required></textarea>
+                    <label class="form-label small fw-bold text-uppercase text-secondary">Descrição da Ocorrência:</label>
+                    <textarea name="problema" rows="4" class="form-control m3-input" placeholder="Descreva os ruídos, códigos de falha ou intervenções necessárias..." required></textarea>
                 </div>
 
                 <div class="d-flex justify-content-between align-items-center pt-2">
                     <a href="/" class="m3-btn-tonal">Voltar</a>
                     <button type="submit" class="m3-btn-filled">
-                        <span class="material-symbols-rounded">send</span> Gravar Chamado
+                        <span class="material-symbols-rounded">send</span> Salvar Chamado
                     </button>
                 </div>
             </form>
@@ -522,7 +451,7 @@ NOVA_OS_HTML = (
 """
 )
 
-# ================= FINALIZAR OS (MATERIAL 3) =================
+# ================= FINALIZAR OS =================
 FINALIZAR_OS_HTML = (
     BASE_HTML
     + """
@@ -543,7 +472,6 @@ FINALIZAR_OS_HTML = (
                 <span class="m3-badge-aberta">Aberta em: {{ os['data_abertura'] }}</span>
             </div>
 
-            <!-- Resumo da Requisição -->
             <div class="m3-card-tonal p-3 mb-4">
                 <div class="row g-2">
                     <div class="col-12 col-md-6">
@@ -555,7 +483,7 @@ FINALIZAR_OS_HTML = (
                         <div>{{ os['solicitante'] }}</div>
                     </div>
                     <div class="col-12 mt-2 pt-2 border-top">
-                        <span class="text-secondary small fw-bold text-uppercase">Problema Relatado:</span>
+                        <span class="text-secondary small fw-bold text-uppercase">Problema Informado:</span>
                         <div class="text-dark">{{ os['problema'] }}</div>
                     </div>
                 </div>
@@ -564,7 +492,7 @@ FINALIZAR_OS_HTML = (
             <form method="POST">
                 <div class="row g-3 mb-3">
                     <div class="col-12 col-md-6">
-                        <label class="form-label small fw-bold text-uppercase text-secondary">Técnico / Operador Responsável:</label>
+                        <label class="form-label small fw-bold text-uppercase text-secondary">Técnico / Operador:</label>
                         <input type="text" name="operador" class="form-control m3-input" placeholder="Nome completo do executor" required autofocus>
                     </div>
                     <div class="col-12 col-md-6">
@@ -574,18 +502,17 @@ FINALIZAR_OS_HTML = (
                 </div>
 
                 <div class="mb-4">
-                    <label class="form-label small fw-bold text-uppercase text-secondary">Ações Executadas & Testes Finais:</label>
-                    <textarea name="servico_executado" rows="3" class="form-control m3-input" placeholder="Detalhes dos reparos, peças trocadas e resultados dos testes operacionais..." required></textarea>
+                    <label class="form-label small fw-bold text-uppercase text-secondary">Serviço Executado & Ações Finais:</label>
+                    <textarea name="servico_executado" rows="3" class="form-control m3-input" placeholder="Descreva manutenções, ajustes mecânicos/elétricos e testes executados..." required></textarea>
                 </div>
 
-                <!-- Tonal Box de Custos -->
                 <div class="m3-card p-4 mb-4 border">
                     <h6 class="fw-bold mb-3 d-flex align-items-center gap-2" style="color: var(--md-sys-color-primary);">
                         <span class="material-symbols-rounded">calculate</span> Apontamento Financeiro
                     </h6>
                     <div class="mb-3">
                         <label class="form-label small fw-semibold text-secondary">PEÇAS / INSUMOS APLICADOS:</label>
-                        <input type="text" name="pecas" class="form-control m3-input" placeholder="Ex: 2x Rolamentos blindados, Fluido lubrificante">
+                        <input type="text" name="pecas" class="form-control m3-input" placeholder="Ex: Rolamento blindado, Fluido lubrificante, Retentores">
                     </div>
                     <div class="row g-3">
                         <div class="col-12 col-md-4">
@@ -636,7 +563,7 @@ function calcularTotal() {
 """
 )
 
-# ================= RECIBO A4 (2 VIAS) =================
+# ================= RECIBO (2 VIAS FORMATADAS EM A4) =================
 RECIBO_A4_HTML = """
 <!DOCTYPE html>
 <html lang="pt-BR">
