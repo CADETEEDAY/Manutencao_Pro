@@ -4,6 +4,7 @@ import io
 import os
 import sqlite3
 import traceback
+import urllib.parse
 from flask import (
     Flask,
     flash,
@@ -25,6 +26,9 @@ except ImportError:
 
 app = Flask(__name__)
 app.secret_key = "chave_mestra_manutencao_predial_segura_2026"
+
+GLOBAL_WEBVIEW = None
+GLOBAL_ACTIVITY = None
 
 
 # ================= CONFIGURAÇÃO DO BANCO NO ANDROID =================
@@ -153,7 +157,88 @@ def tratar_erro(e):
   )
 
 
-# ================= ABERTURA NO NAVEGADOR =================
+# ================= SERVIÇOS NATIVOS: IMPRESSÃO E WHATSAPP =================
+@app.route("/imprimir-nativo/<int:os_id>")
+def imprimir_nativo(os_id):
+  global GLOBAL_WEBVIEW, GLOBAL_ACTIVITY
+  if GLOBAL_WEBVIEW and GLOBAL_ACTIVITY:
+    try:
+      from android.runnable import run_on_ui_thread
+      from jnius import autoclass
+
+      @run_on_ui_thread
+      def _exec_print():
+        Context = autoclass("android.content.Context")
+        PrintAttributes = autoclass("android.print.PrintAttributes")
+        printManager = GLOBAL_ACTIVITY.getSystemService(Context.PRINT_SERVICE)
+        nome_job = f"Recibo_OS_{os_id:05d}"
+        printAdapter = GLOBAL_WEBVIEW.createPrintDocumentAdapter(nome_job)
+        builder = PrintAttributes.Builder()
+        builder.setMediaSize(PrintAttributes.MediaSize.ISO_A4)
+        printManager.print(nome_job, printAdapter, builder.build())
+
+      _exec_print()
+      return redirect(url_for("recibo", os_id=os_id))
+    except Exception as e:
+      return redirect(f"/abrir-navegador?rota=/recibo/{os_id}%3Fprint=1")
+  else:
+    return redirect(f"/abrir-navegador?rota=/recibo/{os_id}%3Fprint=1")
+
+
+@app.route("/compartilhar-whatsapp/<int:os_id>")
+def compartilhar_whatsapp(os_id):
+  cfg = obter_configuracoes()
+  with get_db() as conn:
+    os_item = conn.execute(
+        "SELECT * FROM ordens_servico WHERE id = ?", (os_id,)
+    ).fetchone()
+
+  if not os_item:
+    return "Ordem de Serviço não encontrada", 404
+
+  empresa = cfg["nome_empresa"] if cfg else "Manutenção Predial"
+
+  mensagem = f"""*COMPROVANTE DE MANUTENÇÃO* 🛠️
+-----------------------------------
+🏢 *Empresa:* {empresa}
+📋 *OS Nº:* #{os_item['id']:05d}
+📌 *Status:* {os_item['status']}
+
+🔧 *Equipamento/Local:* {os_item['equipamento']}
+👤 *Solicitante:* {os_item['solicitante']}
+👷 *Técnico Responsável:* {os_item['operador'] or 'Não atribuído'}
+📅 *Data Conclusão:* {os_item['data_finalizacao'] or os_item['data_abertura']}
+
+⚠️ *Defeito / Ocorrência:*
+{os_item['problema']}
+
+✅ *Serviço Técnico Executado:*
+{os_item['servico_executado'] or 'Em andamento'}
+
+📦 *Peças / Insumos Utilizados:*
+{os_item['pecas'] or 'Nenhum material extra cadastrado'}
+-----------------------------------
+_Comprovante emitido via Sistema de Manutenção_"""
+
+  texto_url = urllib.parse.quote(mensagem)
+  url_whatsapp = f"https://api.whatsapp.com/send?text={texto_url}"
+
+  try:
+    from jnius import autoclass
+
+    Intent = autoclass("android.content.Intent")
+    Uri = autoclass("android.net.Uri")
+    activity = autoclass("org.kivy.android.PythonActivity").mActivity
+    intent = Intent(Intent.ACTION_VIEW, Uri.parse(url_whatsapp))
+    activity.startActivity(intent)
+  except Exception:
+    import webbrowser
+
+    webbrowser.open(url_whatsapp)
+
+  return redirect(url_for("recibo", os_id=os_id))
+
+
 @app.route("/abrir-navegador")
 def abrir_navegador():
   rota = request.args.get("rota", "/")
@@ -1096,7 +1181,7 @@ CONFIGURACOES_HTML = BASE_HTML.replace(
 )
 USUARIOS_HTML = BASE_HTML.replace("<!-- CORPO_DA_PAGINA -->", USUARIOS_BODY)
 
-# ================= RECIBO TÉCNICO A4 (2 VIAS) =================
+# ================= RECIBO TÉCNICO A4 (2 VIAS COM WHATSAPP) =================
 RECIBO_A4_HTML = """<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -1145,12 +1230,34 @@ RECIBO_A4_HTML = """<!DOCTYPE html>
 </head>
 <body>
 
-<div class="no-print" style="background:#e0f2fe; padding:12px; margin-bottom:15px; border-radius:8px; text-align:center;">
-    <button onclick="window.print()" style="padding:8px 20px; font-weight:bold; cursor:pointer; background:#00639b; color:#fff; border:none; border-radius:30px; font-size:10pt;">
-        Imprimir Recibo (2 Vias) / Salvar PDF
-    </button>
-    <a href="/" style="margin-left:15px; font-size:9pt; color:#475569; text-decoration:none; font-weight:600;">Voltar ao Painel</a>
+<div class="no-print" style="background:#e0f2fe; padding:12px; margin-bottom:15px; border-radius:12px; text-align:center; display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:10px;">
+    <!-- 1. Impressão direta Android -->
+    <a href="/imprimir-nativo/{{ os['id'] }}" style="padding:10px 22px; font-weight:bold; background:#00639b; color:#fff; border-radius:30px; font-size:10pt; text-decoration:none; display:inline-flex; align-items:center; gap:6px; box-shadow:0 2px 6px rgba(0,99,155,0.3);">
+        🖨️ Imprimir / Salvar PDF
+    </a>
+
+    <!-- 2. Partilha Direta por WhatsApp -->
+    <a href="/compartilhar-whatsapp/{{ os['id'] }}" style="padding:10px 20px; font-weight:bold; background:#25d366; color:#fff; border-radius:30px; font-size:10pt; text-decoration:none; display:inline-flex; align-items:center; gap:6px; box-shadow:0 2px 6px rgba(37,211,102,0.35);">
+        💬 Enviar no WhatsApp
+    </a>
+
+    <!-- 3. Abertura alternativa no Chrome -->
+    <a href="/abrir-navegador?rota=/recibo/{{ os['id'] }}%3Fprint=1" style="padding:10px 18px; font-weight:bold; background:#0284c7; color:#fff; border-radius:30px; font-size:10pt; text-decoration:none; display:inline-flex; align-items:center; gap:6px;">
+        🌐 Abrir no Navegador
+    </a>
+
+    <a href="/" style="padding:10px 16px; font-size:9pt; color:#475569; text-decoration:none; font-weight:600;">
+        ⬅ Voltar ao Painel
+    </a>
 </div>
+
+<script>
+if (window.location.search.indexOf('print=1') !== -1) {
+    setTimeout(function() {
+        window.print();
+    }, 700);
+}
+</script>
 
 {% macro render_via(tipo, badge_class) %}
 <div class="receipt-via">
