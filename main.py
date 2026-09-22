@@ -1,7 +1,7 @@
 import os
 import threading
 import time
-from app import app
+import app as flask_module
 from kivy.app import App
 from kivy.clock import Clock
 from kivy.uix.boxlayout import BoxLayout
@@ -13,7 +13,7 @@ HOST = "127.0.0.1"
 
 
 def iniciar_servidor_flask():
-  app.run(host=HOST, port=PORT, debug=False, use_reloader=False)
+  flask_module.app.run(host=HOST, port=PORT, debug=False, use_reloader=False)
 
 
 class ManutencaoMobileApp(App):
@@ -25,7 +25,6 @@ class ManutencaoMobileApp(App):
     thread_servidor.start()
 
     if platform == "android":
-      # Solicita as permissões do sistema operacional na inicialização
       try:
         from android.permissions import request_permissions
 
@@ -37,7 +36,7 @@ class ManutencaoMobileApp(App):
         ]
         request_permissions(permissoes)
       except Exception as erro:
-        print(f"Erro ao solicitar permissões: {erro}")
+        print(f"Erro ao solicitar permissoes: {erro}")
 
       Clock.schedule_once(self.carregar_webview_android, 2.5)
     else:
@@ -75,6 +74,10 @@ class ManutencaoMobileApp(App):
         settings.setDomStorageEnabled(True)
         settings.setDatabaseEnabled(True)
         settings.setAllowFileAccess(True)
+
+        # Guarda as referências necessárias para o serviço de impressão Android
+        flask_module.GLOBAL_WEBVIEW = webview
+        flask_module.GLOBAL_ACTIVITY = activity
 
         webview.setWebViewClient(WebViewClient())
         activity.setContentView(webview)
