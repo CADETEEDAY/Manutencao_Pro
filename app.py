@@ -2,6 +2,7 @@ from datetime import datetime
 import io
 import os
 import sqlite3
+import traceback
 from flask import Flask, redirect, render_template_string, request, send_file, url_for
 
 try:
@@ -13,11 +14,20 @@ except ImportError:
 
 app = Flask(__name__)
 
-# No Android, utiliza o diretório interno gravável do aplicativo
-DIRETORIO_APP = os.environ.get(
-    "ANDROID_PRIVATE", os.path.dirname(os.path.abspath(__file__))
-)
-DB_PATH = os.path.join(DIRETORIO_APP, "manutencao.db")
+
+# ================= CONFIGURAÇÃO DO BANCO NO ANDROID =================
+def get_db_path():
+  if "ANDROID_PRIVATE" in os.environ:
+    base = os.environ["ANDROID_PRIVATE"]
+  elif "HOME" in os.environ:
+    base = os.environ["HOME"]
+  else:
+    base = os.path.dirname(os.path.abspath(__file__))
+  os.makedirs(base, exist_ok=True)
+  return os.path.join(base, "manutencao.db")
+
+
+DB_PATH = get_db_path()
 
 
 def get_db():
@@ -51,9 +61,26 @@ def init_db():
 
 init_db()
 
+
+# Capturador de erros para exibir diagnósticos diretamente na tela do celular
+@app.errorhandler(Exception)
+def tratar_erro(e):
+  erro_detalhado = traceback.format_exc()
+  return (
+      f"<div style='padding:16px; font-family:sans-serif; color:#991b1b;'>"
+      f"<h3>Ocorreu um erro no aplicativo:</h3>"
+      f"<pre"
+      f" style='background:#fee2e2;border:1px solid"
+      f" #ef4444;padding:12px;border-radius:8px;font-size:11px;overflow-x:auto;'>{erro_detalhado}</pre>"
+      f"<br><a href='/' style='padding:10px"
+      f" 20px;background:#00639b;color:#fff;text-decoration:none;border-radius:24px;font-weight:bold;'>Voltar"
+      f" ao Início</a></div>",
+      500,
+  )
+
+
 # ================= TEMPLATE BASE MATERIAL 3 EXPRESSIVE =================
-BASE_HTML = """
-<!DOCTYPE html>
+BASE_HTML = """<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
@@ -78,7 +105,6 @@ BASE_HTML = """
             --md-sys-color-surface-container-low: #f2f3f9;
             --md-sys-color-surface-container: #eceef4;
             --md-sys-color-on-surface: #191c20;
-            --md-sys-color-on-surface-variant: #43474e;
             --md-sys-color-outline-variant: #c3c7d0;
             --md-sys-color-warning-container: #ffe08b;
             --md-sys-color-on-warning-container: #241a00;
@@ -96,7 +122,7 @@ BASE_HTML = """
             font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
             -webkit-tap-highlight-color: transparent;
             margin: 0;
-            padding-bottom: 90px;
+            padding-bottom: 95px;
         }
 
         .material-symbols-rounded {
@@ -253,7 +279,7 @@ BASE_HTML = """
     </header>
 
     <main class="container">
-        {% block content %}{% endblock %}
+        <!-- CORPO_DA_PAGINA -->
     </main>
 
     <a href="/nova-os" class="m3-fab">
@@ -261,14 +287,10 @@ BASE_HTML = """
         <span>Nova Requisição</span>
     </a>
 </body>
-</html>
-"""
+</html>"""
 
-# ================= PAINEL PRINCIPAL =================
-INDEX_HTML = (
-    BASE_HTML
-    + """
-{% block content %}
+# ================= CORPOS DAS PÁGINAS =================
+INDEX_BODY = """
 <div class="row g-3 mb-4">
     <div class="col-6 col-lg-3">
         <div class="m3-stat-box m3-stat-primary">
@@ -399,15 +421,9 @@ function filtrarOrdens() {
     }
 }
 </script>
-{% endblock %}
 """
-)
 
-# ================= NOVA OS =================
-NOVA_OS_HTML = (
-    BASE_HTML
-    + """
-{% block content %}
+NOVA_BODY = """
 <div class="row justify-content-center">
     <div class="col-12 col-md-8 col-lg-7">
         <div class="m3-card p-4 p-md-5">
@@ -447,15 +463,9 @@ NOVA_OS_HTML = (
         </div>
     </div>
 </div>
-{% endblock %}
 """
-)
 
-# ================= FINALIZAR OS =================
-FINALIZAR_OS_HTML = (
-    BASE_HTML
-    + """
-{% block content %}
+FINALIZAR_BODY = """
 <div class="row justify-content-center">
     <div class="col-12 col-lg-8">
         <div class="m3-card p-4 p-md-5">
@@ -559,13 +569,14 @@ function calcularTotal() {
     document.getElementById('lbl_total').innerText = 'R$ ' + total.toFixed(2);
 }
 </script>
-{% endblock %}
 """
-)
 
-# ================= RECIBO (2 VIAS FORMATADAS EM A4) =================
-RECIBO_A4_HTML = """
-<!DOCTYPE html>
+INDEX_HTML = BASE_HTML.replace("<!-- CORPO_DA_PAGINA -->", INDEX_BODY)
+NOVA_OS_HTML = BASE_HTML.replace("<!-- CORPO_DA_PAGINA -->", NOVA_BODY)
+FINALIZAR_OS_HTML = BASE_HTML.replace("<!-- CORPO_DA_PAGINA -->", FINALIZAR_BODY)
+
+# ================= RECIBO (2 VIAS EM A4) =================
+RECIBO_A4_HTML = """<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
