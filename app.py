@@ -24,7 +24,6 @@ except ImportError:
   TEM_WEASYPRINT = False
 
 app = Flask(__name__)
-# Chave fixa para manter a sessão ativa no Android
 app.secret_key = "chave_mestra_manutencao_predial_segura_2026"
 
 
@@ -51,7 +50,6 @@ def get_db():
 
 def init_db():
   with get_db() as conn:
-    # Tabela de ordens de serviço
     conn.execute("""
             CREATE TABLE IF NOT EXISTS ordens_servico (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -66,7 +64,6 @@ def init_db():
                 status TEXT NOT NULL
             )
         """)
-    # Tabela de configurações da empresa
     conn.execute("""
             CREATE TABLE IF NOT EXISTS configuracoes (
                 id INTEGER PRIMARY KEY,
@@ -80,8 +77,6 @@ def init_db():
             INSERT OR IGNORE INTO configuracoes (id, nome_empresa, subtitulo, contato, logo_base64)
             VALUES (1, 'Manutenção Predial', 'Gestão Operacional de Serviços', '', '')
         """)
-
-    # Tabela de usuários administradores com suporte a foto 3x4
     conn.execute("""
             CREATE TABLE IF NOT EXISTS usuarios (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -93,14 +88,12 @@ def init_db():
             )
         """)
 
-    # Migração automática caso a tabela já existisse sem a coluna foto_base64
     cursor = conn.cursor()
     cursor.execute("PRAGMA table_info(usuarios)")
     colunas = [col[1] for col in cursor.fetchall()]
     if "foto_base64" not in colunas:
       conn.execute("ALTER TABLE usuarios ADD COLUMN foto_base64 TEXT")
 
-    # Criação do usuário padrão caso não exista
     cursor.execute("SELECT id FROM usuarios WHERE usuario = 'admin'")
     if not cursor.fetchone():
       senha_hash = generate_password_hash("12345")
@@ -125,7 +118,6 @@ def obter_configuracoes():
   return cfg
 
 
-# Injeta automaticamente as informações e foto do usuário logado em todas as páginas
 @app.context_processor
 def injetar_usuario_logado():
   if "usuario" in session:
@@ -137,7 +129,7 @@ def injetar_usuario_logado():
   return {"usuario_logado_info": None}
 
 
-# ================= PROTEÇÃO DE ROTAS (LOGIN OBRIGATÓRIO) =================
+# ================= PROTEÇÃO DE ROTAS =================
 @app.before_request
 def checar_autenticacao():
   rotas_livres = ["login", "static"]
@@ -159,6 +151,26 @@ def tratar_erro(e):
       f" ao Início</a></div>",
       500,
   )
+
+
+# ================= ABERTURA NO NAVEGADOR =================
+@app.route("/abrir-navegador")
+def abrir_navegador():
+  rota = request.args.get("rota", "/")
+  url = f"http://127.0.0.1:5000{rota}"
+  try:
+    from jnius import autoclass
+
+    Intent = autoclass("android.content.Intent")
+    Uri = autoclass("android.net.Uri")
+    activity = autoclass("org.kivy.android.PythonActivity").mActivity
+    intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+    activity.startActivity(intent)
+  except Exception:
+    import webbrowser
+
+    webbrowser.open(url)
+  return redirect(rota)
 
 
 # ================= TEMPLATE DE LOGIN =================
@@ -486,7 +498,6 @@ BASE_HTML = """<!DOCTYPE html>
             text-decoration: none;
         }
 
-        /* Avatar 3x4 / circular na barra superior */
         .user-top-badge {
             background: #ffffff;
             border: 1px solid var(--md-sys-color-outline-variant);
@@ -523,7 +534,6 @@ BASE_HTML = """<!DOCTYPE html>
             </a>
 
             <div class="d-flex align-items-center gap-2">
-                <!-- Informações e Foto do Usuário Logado -->
                 {% if usuario_logado_info %}
                 <div class="user-top-badge d-none d-md-inline-flex">
                     {% if usuario_logado_info['foto_base64'] %}
@@ -854,6 +864,16 @@ CONFIGURACOES_BODY = """
                 </div>
             </div>
 
+            <div class="p-3 bg-light border rounded-3 mb-4 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div class="small text-secondary fw-semibold">
+                    <span class="material-symbols-rounded fs-5 align-middle text-primary">photo_library</span>
+                    O botão de arquivo não abriu no aplicativo?
+                </div>
+                <a href="/abrir-navegador?rota=/configuracoes" class="m3-btn-filled py-1 px-3" style="font-size: 0.8rem;">
+                    <span class="material-symbols-rounded fs-6">open_in_browser</span> Abrir na Galeria
+                </a>
+            </div>
+
             <form method="POST" enctype="multipart/form-data">
                 <div class="mb-3">
                     <label class="form-label small fw-bold text-uppercase text-secondary">Nome da Empresa / Condomínio:</label>
@@ -878,8 +898,11 @@ CONFIGURACOES_BODY = """
                             <label class="text-muted small"><input type="checkbox" name="remover_logo" value="1"> Remover logotipo atual</label>
                         </div>
                     {% endif %}
-                    <input type="file" name="logo" class="form-control m3-input" accept="image/png, image/jpeg, image/webp">
-                    <small class="text-muted d-block mt-1">A imagem selecionada aparecerá na barra superior e nos recibos impressos de 2 vias.</small>
+                    <input type="file" name="logo" class="form-control m3-input mb-2" accept="image/png, image/jpeg, image/webp">
+
+                    <label class="form-label small fw-semibold text-secondary d-block mt-2">Ou cole o Link / URL da Imagem do Logo:</label>
+                    <input type="url" name="logo_url" class="form-control m3-input" placeholder="https://exemplo.com/minha-logo.png">
+                    <small class="text-muted d-block mt-1">Cole o link público de qualquer imagem da internet ou envie o arquivo.</small>
                 </div>
 
                 <div class="d-flex justify-content-between align-items-center pt-2">
@@ -923,11 +946,9 @@ CONFIGURACOES_BODY = """
 </div>
 """
 
-# ================= TELA DE GERENCIAMENTO DE USUÁRIOS COM FOTO 3X4 =================
 USUARIOS_BODY = """
 <div class="row justify-content-center">
     <div class="col-12 col-lg-10">
-        <!-- FORMULÁRIO DE NOVO USUÁRIO -->
         <div class="m3-card p-4 p-md-5 mb-4">
             <div class="d-flex align-items-center gap-3 mb-4">
                 <div class="m3-icon-badge" style="background: var(--md-sys-color-primary-container);">
@@ -937,6 +958,16 @@ USUARIOS_BODY = """
                     <h4 class="fw-bold mb-0">Cadastrar Administrador</h4>
                     <span class="text-muted small">Adicione um novo usuário com foto 3x4 de identificação</span>
                 </div>
+            </div>
+
+            <div class="p-3 bg-light border rounded-3 mb-4 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div class="small text-secondary fw-semibold">
+                    <span class="material-symbols-rounded fs-5 align-middle text-primary">photo_camera</span>
+                    Deseja tirar uma foto com a câmera ou escolher da galeria?
+                </div>
+                <a href="/abrir-navegador?rota=/usuarios" class="m3-btn-filled py-1 px-3" style="font-size: 0.8rem;">
+                    <span class="material-symbols-rounded fs-6">photo_camera</span> Abrir Câmera / Galeria
+                </a>
             </div>
 
             {% if msg_sucesso %}
@@ -954,7 +985,6 @@ USUARIOS_BODY = """
 
             <form method="POST" enctype="multipart/form-data">
                 <div class="row g-4 align-items-center mb-3">
-                    <!-- ÁREA DE UPLOAD E PRÉVIA DA FOTO 3X4 -->
                     <div class="col-12 col-md-4 text-center">
                         <label class="form-label small fw-bold text-uppercase text-secondary d-block">Foto 3x4:</label>
                         <div style="width: 105px; height: 140px; border: 2px dashed #c3c7d0; border-radius: 14px; margin: 0 auto; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #f2f3f9; position: relative;">
@@ -964,11 +994,10 @@ USUARIOS_BODY = """
                                 <span style="font-size: 0.65rem; font-weight: 700; text-transform: uppercase;">3 x 4</span>
                             </div>
                         </div>
-                        <input type="file" name="foto" id="inputFoto" class="form-control m3-input mt-2" accept="image/png, image/jpeg, image/webp" onchange="previewFoto(event)">
+                        <input type="file" name="foto" id="inputFoto" class="form-control m3-input mt-2" accept="image/*" onchange="previewFoto(event)">
                         <small class="text-muted d-block mt-1" style="font-size: 0.72rem;">Selecione a foto vertical 3x4</small>
                     </div>
 
-                    <!-- CAMPOS DE TEXTO DO USUÁRIO -->
                     <div class="col-12 col-md-8">
                         <div class="mb-3">
                             <label class="form-label small fw-bold text-uppercase text-secondary">Nome Completo:</label>
@@ -994,7 +1023,6 @@ USUARIOS_BODY = """
             </form>
         </div>
 
-        <!-- LISTA DE USUÁRIOS ATIVOS -->
         <div class="m3-card overflow-hidden">
             <div class="p-3 bg-light border-bottom">
                 <h6 class="fw-bold mb-0 text-dark"><span class="material-symbols-rounded fs-5 align-middle">group</span> Administradores Ativos</h6>
@@ -1256,7 +1284,6 @@ def usuarios():
     novo_usuario = request.form["usuario"].strip().lower()
     senha = request.form["senha"].strip()
 
-    # Leitura e conversão da Foto 3x4 para Base64
     foto_base64 = ""
     arquivo_foto = request.files.get("foto")
     if arquivo_foto and arquivo_foto.filename != "":
@@ -1352,8 +1379,12 @@ def configuracoes():
     subtitulo = request.form.get("subtitulo", "").strip()
     contato = request.form.get("contato", "").strip()
     remover_logo = request.form.get("remover_logo") == "1"
+    logo_url = request.form.get("logo_url", "").strip()
 
     logo_base64 = "" if remover_logo else cfg["logo_base64"]
+
+    if logo_url:
+      logo_base64 = logo_url
 
     arquivo_logo = request.files.get("logo")
     if arquivo_logo and arquivo_logo.filename != "":
