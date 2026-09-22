@@ -1,3 +1,4 @@
+import base64
 from datetime import datetime
 import io
 import os
@@ -38,6 +39,7 @@ def get_db():
 
 def init_db():
   with get_db() as conn:
+    # Tabela de ordens de serviço
     conn.execute("""
             CREATE TABLE IF NOT EXISTS ordens_servico (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -49,12 +51,23 @@ def init_db():
                 data_finalizacao TEXT,
                 servico_executado TEXT,
                 pecas TEXT,
-                custo_pecas REAL DEFAULT 0.0,
-                horas_trabalhadas REAL DEFAULT 0.0,
-                valor_hora REAL DEFAULT 0.0,
-                custo_total REAL DEFAULT 0.0,
                 status TEXT NOT NULL
             )
+        """)
+    # Tabela de configurações e logotipo da empresa
+    conn.execute("""
+            CREATE TABLE IF NOT EXISTS configuracoes (
+                id INTEGER PRIMARY KEY,
+                nome_empresa TEXT,
+                subtitulo TEXT,
+                contato TEXT,
+                logo_base64 TEXT
+            )
+        """)
+    # Configuração inicial
+    conn.execute("""
+            INSERT OR IGNORE INTO configuracoes (id, nome_empresa, subtitulo, contato, logo_base64)
+            VALUES (1, 'Manutenção Predial', 'Gestão Operacional de Serviços', '', '')
         """)
     conn.commit()
 
@@ -62,7 +75,14 @@ def init_db():
 init_db()
 
 
-# Capturador de erros para exibir diagnósticos diretamente na tela do celular
+def obter_configuracoes():
+  with get_db() as conn:
+    cfg = conn.execute(
+        "SELECT * FROM configuracoes WHERE id = 1"
+    ).fetchone()
+  return cfg
+
+
 @app.errorhandler(Exception)
 def tratar_erro(e):
   erro_detalhado = traceback.format_exc()
@@ -85,7 +105,7 @@ BASE_HTML = """<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Manutenção</title>
+    <title>{{ cfg['nome_empresa'] }}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -99,8 +119,8 @@ BASE_HTML = """<!DOCTYPE html>
             --md-sys-color-on-primary-container: #001d33;
             --md-sys-color-secondary-container: #d9e3f8;
             --md-sys-color-on-secondary-container: #121c2b;
-            --md-sys-color-tertiary-container: #f7d8ff;
-            --md-sys-color-on-tertiary-container: #2b0042;
+            --md-sys-color-tertiary-container: #e8def8;
+            --md-sys-color-on-tertiary-container: #1d192b;
             --md-sys-color-surface: #f8f9ff;
             --md-sys-color-surface-container-low: #f2f3f9;
             --md-sys-color-surface-container: #eceef4;
@@ -110,6 +130,8 @@ BASE_HTML = """<!DOCTYPE html>
             --md-sys-color-on-warning-container: #241a00;
             --md-sys-color-success-container: #b4f3b7;
             --md-sys-color-on-success-container: #002107;
+            --md-sys-color-error-container: #ffdad6;
+            --md-sys-color-on-error-container: #410002;
             --md-shape-md: 16px;
             --md-shape-lg: 24px;
             --md-shape-xl: 32px;
@@ -133,7 +155,7 @@ BASE_HTML = """<!DOCTYPE html>
 
         .m3-top-app-bar {
             background: var(--md-sys-color-surface-container-low);
-            padding: 14px 20px;
+            padding: 12px 20px;
             position: sticky;
             top: 0;
             z-index: 1000;
@@ -169,10 +191,35 @@ BASE_HTML = """<!DOCTYPE html>
             width: 44px;
             height: 44px;
             border-radius: var(--md-shape-md);
-            background: rgba(255, 255, 255, 0.45);
+            background: rgba(255, 255, 255, 0.5);
             display: flex;
             align-items: center;
             justify-content: center;
+        }
+
+        .m3-segmented-tabs {
+            display: flex;
+            background: var(--md-sys-color-surface-container);
+            padding: 4px;
+            border-radius: var(--md-shape-full);
+            gap: 4px;
+        }
+        .m3-tab-item {
+            flex: 1;
+            text-align: center;
+            padding: 8px 16px;
+            border-radius: var(--md-shape-full);
+            font-weight: 700;
+            font-size: 0.82rem;
+            cursor: pointer;
+            color: var(--md-sys-color-on-surface);
+            transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
+            user-select: none;
+        }
+        .m3-tab-item.active {
+            background: #ffffff;
+            color: var(--md-sys-color-primary);
+            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
         }
 
         .m3-badge-aberta {
@@ -249,11 +296,23 @@ BASE_HTML = """<!DOCTYPE html>
             color: var(--md-sys-color-on-secondary-container);
             border: none;
             border-radius: var(--md-shape-full);
-            padding: 8px 18px;
+            padding: 8px 16px;
             font-weight: 600;
             display: inline-flex;
             align-items: center;
             gap: 6px;
+            text-decoration: none;
+        }
+        .m3-btn-danger {
+            background-color: var(--md-sys-color-error-container);
+            color: var(--md-sys-color-on-error-container);
+            border: none;
+            border-radius: var(--md-shape-full);
+            padding: 6px 12px;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
             text-decoration: none;
         }
     </style>
@@ -261,18 +320,23 @@ BASE_HTML = """<!DOCTYPE html>
 <body>
     <header class="m3-top-app-bar mb-4">
         <div class="container d-flex justify-content-between align-items-center">
-            <a href="/" class="text-decoration-none d-flex align-items-center gap-2">
-                <div class="m3-icon-badge" style="background: var(--md-sys-color-primary-container); width: 40px; height: 40px;">
-                    <span class="material-symbols-rounded text-primary">handyman</span>
-                </div>
+            <a href="/" class="text-decoration-none d-flex align-items-center gap-3">
+                {% if cfg['logo_base64'] %}
+                    <img src="{{ cfg['logo_base64'] }}" alt="Logo" style="height: 42px; max-width: 90px; object-fit: contain; border-radius: 8px;">
+                {% else %}
+                    <div class="m3-icon-badge" style="background: var(--md-sys-color-primary-container); width: 42px; height: 42px;">
+                        <span class="material-symbols-rounded text-primary fs-3">domain</span>
+                    </div>
+                {% endif %}
                 <div>
-                    <h5 class="fw-bold mb-0 text-dark">Manutenção</h5>
-                    <span class="text-muted" style="font-size: 0.72rem; letter-spacing: 0.5px;">MATERIAL 3 EXPRESSIVE</span>
+                    <h5 class="fw-bold mb-0 text-dark">{{ cfg['nome_empresa'] }}</h5>
+                    <span class="text-muted" style="font-size: 0.72rem; letter-spacing: 0.5px;">{{ cfg['subtitulo'] or 'GESTÃO DE MANUTENÇÃO' }}</span>
                 </div>
             </a>
-            <div>
-                <a href="/" class="m3-btn-tonal d-none d-sm-inline-flex">
-                    <span class="material-symbols-rounded">dashboard</span> Início
+            <div class="d-flex align-items-center gap-2">
+                <a href="/configuracoes" class="m3-btn-tonal" title="Configurações do Aplicativo">
+                    <span class="material-symbols-rounded fs-5">settings</span>
+                    <span class="d-none d-sm-inline">Configurações</span>
                 </a>
             </div>
         </div>
@@ -291,6 +355,7 @@ BASE_HTML = """<!DOCTYPE html>
 
 # ================= CORPOS DAS PÁGINAS =================
 INDEX_BODY = """
+<!-- CARDS DE ESTATÍSTICAS OPERACIONAIS -->
 <div class="row g-3 mb-4">
     <div class="col-6 col-lg-3">
         <div class="m3-stat-box m3-stat-primary">
@@ -321,22 +386,47 @@ INDEX_BODY = """
     </div>
     <div class="col-6 col-lg-3">
         <div class="m3-stat-box m3-stat-tertiary">
-            <div class="m3-icon-badge"><span class="material-symbols-rounded fs-4">payments</span></div>
+            <div class="m3-icon-badge"><span class="material-symbols-rounded fs-4">trending_up</span></div>
             <div>
-                <div class="small fw-semibold text-uppercase" style="opacity: 0.85;">Total</div>
-                <div class="fs-5 fw-bold">R$ {{ "%.2f" % faturamento_total }}</div>
+                <div class="small fw-semibold text-uppercase" style="opacity: 0.85;">Conclusão</div>
+                <div class="fs-4 fw-bold">
+                    {% if total_os > 0 %}
+                        {{ "%.0f" % ((os_concluidas / total_os) * 100) }}%
+                    {% else %}
+                        0%
+                    {% endif %}
+                </div>
             </div>
         </div>
     </div>
 </div>
 
+<!-- BARRA DE PESQUISA E ABAS MATERIAL 3 -->
 <div class="m3-card p-3 mb-4">
-    <div class="d-flex align-items-center gap-2 bg-light px-3 rounded-pill border">
-        <span class="material-symbols-rounded text-secondary">search</span>
-        <input type="text" id="filtroM3" class="form-control border-0 bg-transparent py-2" placeholder="Buscar por equipamento, técnico ou solicitante..." onkeyup="filtrarOrdens()">
+    <div class="row align-items-center g-3">
+        <div class="col-12 col-md-6">
+            <div class="d-flex align-items-center gap-2 bg-light px-3 rounded-pill border">
+                <span class="material-symbols-rounded text-secondary">search</span>
+                <input type="text" id="filtroM3" class="form-control border-0 bg-transparent py-2" placeholder="Buscar por equipamento, técnico ou solicitante..." onkeyup="filtrarOrdens()">
+            </div>
+        </div>
+        <div class="col-12 col-md-6">
+            <div class="m3-segmented-tabs">
+                <div class="m3-tab-item active" id="tab-todas" onclick="selecionarAba('todas')">
+                    Todas ({{ total_os }})
+                </div>
+                <div class="m3-tab-item" id="tab-abertas" onclick="selecionarAba('aberta')">
+                    Abertas ({{ os_abertas }})
+                </div>
+                <div class="m3-tab-item" id="tab-concluidas" onclick="selecionarAba('concluida')">
+                    Concluídas ({{ os_concluidas }})
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
+<!-- LISTA DE ORDENS DE SERVIÇO -->
 <div class="m3-card overflow-hidden">
     <div class="table-responsive">
         <table class="table table-hover align-middle mb-0" id="tabelaM3">
@@ -347,14 +437,13 @@ INDEX_BODY = """
                     <th>Solicitante</th>
                     <th>Operador Técnico</th>
                     <th>Abertura</th>
-                    <th>Custo Total</th>
                     <th>Status</th>
-                    <th class="text-end pe-4">Ação</th>
+                    <th class="text-end pe-4">Ações</th>
                 </tr>
             </thead>
             <tbody>
                 {% for os in ordens %}
-                <tr>
+                <tr class="linha-os" data-status="{{ os['status']|lower }}">
                     <td class="ps-4 fw-bold text-primary">#{{ "%05d" % os['id'] }}</td>
                     <td class="fw-bold">{{ os['equipamento'] }}</td>
                     <td>{{ os['solicitante'] }}</td>
@@ -366,13 +455,6 @@ INDEX_BODY = """
                         {% endif %}
                     </td>
                     <td class="small text-muted">{{ os['data_abertura'] }}</td>
-                    <td class="fw-bold">
-                        {% if os['custo_total'] %}
-                            R$ {{ "%.2f" % os['custo_total'] }}
-                        {% else %}
-                            <span class="text-muted">-</span>
-                        {% endif %}
-                    </td>
                     <td>
                         {% if os['status'] == 'ABERTA' %}
                             <span class="m3-badge-aberta"><span class="material-symbols-rounded fs-6">schedule</span> ABERTA</span>
@@ -381,20 +463,25 @@ INDEX_BODY = """
                         {% endif %}
                     </td>
                     <td class="text-end pe-4">
-                        {% if os['status'] == 'ABERTA' %}
-                            <a href="/finalizar/{{ os['id'] }}" class="m3-btn-tonal py-1 px-3">
-                                <span class="material-symbols-rounded fs-6">build</span> Fechar
+                        <div class="d-inline-flex align-items-center gap-1">
+                            {% if os['status'] == 'ABERTA' %}
+                                <a href="/finalizar/{{ os['id'] }}" class="m3-btn-tonal py-1 px-3" title="Finalizar serviço">
+                                    <span class="material-symbols-rounded fs-6">build</span> Fechar
+                                </a>
+                            {% else %}
+                                <a href="/recibo/{{ os['id'] }}" class="m3-btn-filled py-1 px-3" style="background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container);" title="Visualizar Recibo">
+                                    <span class="material-symbols-rounded fs-6">receipt_long</span> Recibo
+                                </a>
+                            {% endif %}
+                            <a href="/excluir/{{ os['id'] }}" class="m3-btn-danger" onclick="return confirm('Deseja realmente excluir permanentemente a requisição #{{ '%05d' % os['id'] }}?');" title="Excluir requisição">
+                                <span class="material-symbols-rounded fs-6">delete</span>
                             </a>
-                        {% else %}
-                            <a href="/recibo/{{ os['id'] }}" class="m3-btn-filled py-1 px-3" style="background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container);">
-                                <span class="material-symbols-rounded fs-6">receipt_long</span> Recibo
-                            </a>
-                        {% endif %}
+                        </div>
                     </td>
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="8" class="text-center py-5 text-muted">
+                    <td colspan="7" class="text-center py-5 text-muted">
                         <span class="material-symbols-rounded fs-1 d-block mb-2 text-secondary">inbox</span>
                         Nenhuma ordem de serviço cadastrada.
                     </td>
@@ -406,19 +493,34 @@ INDEX_BODY = """
 </div>
 
 <script>
-function filtrarOrdens() {
-    let input = document.getElementById("filtroM3");
-    let filter = input.value.toLowerCase();
-    let tr = document.getElementById("tabelaM3").getElementsByTagName("tr");
+let abaAtiva = 'todas';
 
-    for (let i = 1; i < tr.length; i++) {
-        let textoLinha = tr[i].textContent || tr[i].innerText;
-        if (textoLinha.toLowerCase().indexOf(filter) > -1) {
-            tr[i].style.display = "";
+function selecionarAba(tipo) {
+    abaAtiva = tipo;
+    document.querySelectorAll('.m3-tab-item').forEach(el => el.classList.remove('active'));
+    if (tipo === 'todas') document.getElementById('tab-todas').classList.add('active');
+    if (tipo === 'aberta') document.getElementById('tab-abertas').classList.add('active');
+    if (tipo === 'concluida') document.getElementById('tab-concluidas').classList.add('active');
+    filtrarOrdens();
+}
+
+function filtrarOrdens() {
+    let filtroTexto = document.getElementById("filtroM3").value.toLowerCase();
+    let linhas = document.querySelectorAll(".linha-os");
+
+    linhas.forEach(linha => {
+        let statusLinha = linha.getAttribute("data-status");
+        let textoLinha = linha.textContent.toLowerCase();
+
+        let passaAba = (abaAtiva === 'todas') || (statusLinha.indexOf(abaAtiva) > -1);
+        let passaTexto = textoLinha.indexOf(filtroTexto) > -1;
+
+        if (passaAba && passaTexto) {
+            linha.style.display = "";
         } else {
-            tr[i].style.display = "none";
+            linha.style.display = "none";
         }
-    }
+    });
 }
 </script>
 """
@@ -440,17 +542,17 @@ NOVA_BODY = """
             <form method="POST">
                 <div class="mb-3">
                     <label class="form-label small fw-bold text-uppercase text-secondary">Equipamento ou Local:</label>
-                    <input type="text" name="equipamento" class="form-control m3-input" placeholder="Ex: Torno CNC, Gerador Diesel, Split Sala 02" required autofocus>
+                    <input type="text" name="equipamento" class="form-control m3-input" placeholder="Ex: Bomba D'água, Elevador 01, Gerador" required autofocus>
                 </div>
 
                 <div class="mb-3">
                     <label class="form-label small fw-bold text-uppercase text-secondary">Solicitante:</label>
-                    <input type="text" name="solicitante" class="form-control m3-input" placeholder="Ex: Coordenação de Manutenção" required>
+                    <input type="text" name="solicitante" class="form-control m3-input" placeholder="Ex: Portaria, Gerência ou Morador" required>
                 </div>
 
                 <div class="mb-4">
                     <label class="form-label small fw-bold text-uppercase text-secondary">Descrição da Ocorrência:</label>
-                    <textarea name="problema" rows="4" class="form-control m3-input" placeholder="Descreva os ruídos, códigos de falha ou intervenções necessárias..." required></textarea>
+                    <textarea name="problema" rows="4" class="form-control m3-input" placeholder="Descreva os ruídos, defeitos ou inspeção requerida..." required></textarea>
                 </div>
 
                 <div class="d-flex justify-content-between align-items-center pt-2">
@@ -511,38 +613,14 @@ FINALIZAR_BODY = """
                     </div>
                 </div>
 
-                <div class="mb-4">
-                    <label class="form-label small fw-bold text-uppercase text-secondary">Serviço Executado & Ações Finais:</label>
-                    <textarea name="servico_executado" rows="3" class="form-control m3-input" placeholder="Descreva manutenções, ajustes mecânicos/elétricos e testes executados..." required></textarea>
+                <div class="mb-3">
+                    <label class="form-label small fw-bold text-uppercase text-secondary">Peças & Insumos Aplicados:</label>
+                    <input type="text" name="pecas" class="form-control m3-input" placeholder="Ex: 1x Relé térmico, 2x Vedações, 1L Óleo lubrificante">
                 </div>
 
-                <div class="m3-card p-4 mb-4 border">
-                    <h6 class="fw-bold mb-3 d-flex align-items-center gap-2" style="color: var(--md-sys-color-primary);">
-                        <span class="material-symbols-rounded">calculate</span> Apontamento Financeiro
-                    </h6>
-                    <div class="mb-3">
-                        <label class="form-label small fw-semibold text-secondary">PEÇAS / INSUMOS APLICADOS:</label>
-                        <input type="text" name="pecas" class="form-control m3-input" placeholder="Ex: Rolamento blindado, Fluido lubrificante, Retentores">
-                    </div>
-                    <div class="row g-3">
-                        <div class="col-12 col-md-4">
-                            <label class="form-label small fw-semibold text-secondary">CUSTO PEÇAS (R$):</label>
-                            <input type="number" step="0.01" min="0" name="custo_pecas" id="custo_pecas" class="form-control m3-input fw-bold" value="0.00" oninput="calcularTotal()">
-                        </div>
-                        <div class="col-6 col-md-4">
-                            <label class="form-label small fw-semibold text-secondary">HORAS TRABALHADAS (h):</label>
-                            <input type="number" step="0.1" min="0" name="horas_trabalhadas" id="horas_trabalhadas" class="form-control m3-input fw-bold" value="1.0" oninput="calcularTotal()">
-                        </div>
-                        <div class="col-6 col-md-4">
-                            <label class="form-label small fw-semibold text-secondary">VALOR DA HORA (R$):</label>
-                            <input type="number" step="0.01" min="0" name="valor_hora" id="valor_hora" class="form-control m3-input fw-bold" value="80.00" oninput="calcularTotal()">
-                        </div>
-                    </div>
-
-                    <div class="d-flex justify-content-between align-items-center mt-3 pt-3 border-top">
-                        <span class="text-secondary small fw-bold">MÃO DE OBRA: <strong id="lbl_subtotal_mo" class="text-dark">R$ 80,00</strong></span>
-                        <span class="fs-5 fw-bold" style="color: var(--md-sys-color-primary);">VALOR TOTAL: <strong id="lbl_total" class="fs-4">R$ 80,00</strong></span>
-                    </div>
+                <div class="mb-4">
+                    <label class="form-label small fw-bold text-uppercase text-secondary">Serviço Técnico Executado:</label>
+                    <textarea name="servico_executado" rows="4" class="form-control m3-input" placeholder="Descreva os reparos feitos, medições, testes e laudo da manutenção..." required></textarea>
                 </div>
 
                 <div class="d-flex justify-content-between align-items-center pt-2">
@@ -555,32 +633,106 @@ FINALIZAR_BODY = """
         </div>
     </div>
 </div>
+"""
 
-<script>
-function calcularTotal() {
-    const pecas = parseFloat(document.getElementById('custo_pecas').value) || 0;
-    const horas = parseFloat(document.getElementById('horas_trabalhadas').value) || 0;
-    const valorHora = parseFloat(document.getElementById('valor_hora').value) || 0;
+CONFIGURACOES_BODY = """
+<div class="row justify-content-center">
+    <div class="col-12 col-md-8 col-lg-7">
+        <div class="m3-card p-4 p-md-5 mb-4">
+            <div class="d-flex align-items-center gap-3 mb-4">
+                <div class="m3-icon-badge" style="background: var(--md-sys-color-secondary-container);">
+                    <span class="material-symbols-rounded fs-2 text-primary">settings</span>
+                </div>
+                <div>
+                    <h4 class="fw-bold mb-0">Configurações do Aplicativo</h4>
+                    <span class="text-muted small">Personalize a identidade da empresa e logotipo</span>
+                </div>
+            </div>
 
-    const mo = horas * valorHora;
-    const total = pecas + mo;
+            <form method="POST" enctype="multipart/form-data">
+                <div class="mb-3">
+                    <label class="form-label small fw-bold text-uppercase text-secondary">Nome da Empresa / Condomínio:</label>
+                    <input type="text" name="nome_empresa" class="form-control m3-input" value="{{ cfg['nome_empresa'] }}" required>
+                </div>
 
-    document.getElementById('lbl_subtotal_mo').innerText = 'R$ ' + mo.toFixed(2);
-    document.getElementById('lbl_total').innerText = 'R$ ' + total.toFixed(2);
-}
-</script>
+                <div class="mb-3">
+                    <label class="form-label small fw-bold text-uppercase text-secondary">Subtítulo / Ramo de Atuação:</label>
+                    <input type="text" name="subtitulo" class="form-control m3-input" value="{{ cfg['subtitulo'] }}" placeholder="Ex: Gestão de Manutenção Predial">
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small fw-bold text-uppercase text-secondary">Telefone / E-mail / Contato:</label>
+                    <input type="text" name="contato" class="form-control m3-input" value="{{ cfg['contato'] }}" placeholder="Ex: Tel: (21) 99999-9999 | contato@empresa.com">
+                </div>
+
+                <!-- CAMPO PARA ADICIONAR LOGO -->
+                <div class="mb-4 p-3 bg-light rounded-3 border">
+                    <label class="form-label small fw-bold text-uppercase text-secondary d-block">Logotipo da Empresa:</label>
+                    {% if cfg['logo_base64'] %}
+                        <div class="mb-2 d-flex align-items-center gap-3">
+                            <img src="{{ cfg['logo_base64'] }}" style="max-height: 60px; max-width: 140px; object-fit: contain; background:#fff; padding:4px; border:1px solid #ccc; border-radius:6px;">
+                            <label class="text-muted small"><input type="checkbox" name="remover_logo" value="1"> Remover logotipo atual</label>
+                        </div>
+                    {% endif %}
+                    <input type="file" name="logo" class="form-control m3-input" accept="image/png, image/jpeg, image/webp">
+                    <small class="text-muted d-block mt-1">A imagem selecionada aparecerá na barra superior e nos recibos impressos de 2 vias.</small>
+                </div>
+
+                <div class="d-flex justify-content-between align-items-center pt-2">
+                    <a href="/" class="m3-btn-tonal">Voltar</a>
+                    <button type="submit" class="m3-btn-filled">
+                        <span class="material-symbols-rounded">save</span> Salvar Configurações
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- CARD DE CRÉDITOS DO DESENVOLVEDOR -->
+        <div class="m3-card p-4 border" style="background: var(--md-sys-color-surface-container-low); border-radius: var(--md-shape-lg);">
+            <div class="d-flex align-items-center gap-3 mb-3">
+                <div class="m3-icon-badge" style="background: var(--md-sys-color-primary-container);">
+                    <span class="material-symbols-rounded fs-3 text-primary">terminal</span>
+                </div>
+                <div>
+                    <span class="text-muted small fw-bold text-uppercase" style="letter-spacing: 0.5px;">Desenvolvido por</span>
+                    <h5 class="fw-bold mb-0 text-dark">Robson Cadete</h5>
+                </div>
+            </div>
+
+            <div class="d-flex flex-column gap-2 pt-1 border-top">
+                <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 pt-2">
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="material-symbols-rounded text-primary fs-5">call</span>
+                        <a href="tel:21974623033" class="text-decoration-none fw-bold text-dark">(21) 97462-3033</a>
+                    </div>
+                    <a href="https://wa.me/5521974623033" target="_blank" class="m3-btn-tonal py-1 px-3" style="background: #25d366; color: #ffffff; font-size: 0.78rem;">
+                        <span class="material-symbols-rounded fs-6">chat</span> WhatsApp
+                    </a>
+                </div>
+
+                <div class="d-flex align-items-center gap-2 pt-1">
+                    <span class="material-symbols-rounded text-primary fs-5">mail</span>
+                    <a href="mailto:robson.cadete@gmail.com" class="text-decoration-none fw-semibold text-dark">robson.cadete@gmail.com</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 """
 
 INDEX_HTML = BASE_HTML.replace("<!-- CORPO_DA_PAGINA -->", INDEX_BODY)
 NOVA_OS_HTML = BASE_HTML.replace("<!-- CORPO_DA_PAGINA -->", NOVA_BODY)
 FINALIZAR_OS_HTML = BASE_HTML.replace("<!-- CORPO_DA_PAGINA -->", FINALIZAR_BODY)
+CONFIGURACOES_HTML = BASE_HTML.replace(
+    "<!-- CORPO_DA_PAGINA -->", CONFIGURACOES_BODY
+)
 
-# ================= RECIBO (2 VIAS EM A4) =================
+# ================= RECIBO TÉCNICO A4 (2 VIAS COM LOGO E SEM PAGAMENTO) =================
 RECIBO_A4_HTML = """<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<title>Recibo OS #{{ "%05d" % os['id'] }} - Manutenção</title>
+<title>Recibo OS #{{ "%05d" % os['id'] }} - {{ cfg['nome_empresa'] }}</title>
 <style>
   @page {
     size: A4;
@@ -659,8 +811,8 @@ RECIBO_A4_HTML = """<!DOCTYPE html>
     background-color: #f8fafc;
     border: 1px solid #e2e8f0;
     border-radius: 4px;
-    padding: 5px 8px;
-    margin-bottom: 5px;
+    padding: 6px 8px;
+    margin-bottom: 6px;
   }
   .box-title {
     font-size: 7pt;
@@ -674,36 +826,9 @@ RECIBO_A4_HTML = """<!DOCTYPE html>
     color: #1e293b;
     white-space: pre-line;
   }
-  .finance-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-top: 4px;
-    margin-bottom: 6px;
-    font-size: 8pt;
-  }
-  .finance-table th {
-    background: #f1f5f9;
-    color: #334155;
-    text-align: left;
-    padding: 4px 6px;
-    font-size: 7pt;
-    text-transform: uppercase;
-    border-bottom: 1.5px solid #cbd5e1;
-  }
-  .finance-table td {
-    padding: 3px 6px;
-    border-bottom: 1px solid #e2e8f0;
-  }
-  .finance-table tr.total-row td {
-    border-top: 2px solid #0f172a;
-    font-weight: 800;
-    font-size: 8.5pt;
-    color: #0f172a;
-    background: #f8fafc;
-  }
   .signatures {
     width: 100%;
-    margin-top: 10px;
+    margin-top: 15px;
   }
   .sig-line {
     border-top: 1px solid #64748b;
@@ -755,11 +880,17 @@ RECIBO_A4_HTML = """<!DOCTYPE html>
 <div class="receipt-via">
   <table class="header-table">
     <tr>
-      <td style="width: 70%;">
-        <span class="badge-via {{ badge_class }}">{{ tipo }}</span>
-        <div class="header-title">Ordem de Serviço - Manutenção</div>
+      <td style="width: 15%; vertical-align: middle;">
+        {% if cfg['logo_base64'] %}
+          <img src="{{ cfg['logo_base64'] }}" style="max-height: 40px; max-width: 90px; object-fit: contain;">
+        {% endif %}
       </td>
-      <td style="width: 30%; text-align: right;">
+      <td style="width: 55%; vertical-align: middle;">
+        <span class="badge-via {{ badge_class }}">{{ tipo }}</span>
+        <div class="header-title">{{ cfg['nome_empresa'] }}</div>
+        {% if cfg['contato'] %}<div style="font-size: 7pt; color: #64748b;">{{ cfg['contato'] }}</div>{% endif %}
+      </td>
+      <td style="width: 30%; text-align: right; vertical-align: middle;">
         <div class="os-number">OS Nº {{ "%05d" % os['id'] }}</div>
         <div style="font-size: 7.5pt; color: #64748b;">Status: <strong>{{ os['status'] }}</strong></div>
       </td>
@@ -794,48 +925,24 @@ RECIBO_A4_HTML = """<!DOCTYPE html>
   </table>
 
   <div class="box-section">
-    <div class="box-title">Descrição do Problema / Requisição:</div>
+    <div class="box-title">Defeito Reclamado / Requisição:</div>
     <div class="box-content">{{ os['problema'] }}</div>
   </div>
 
   <div class="box-section">
-    <div class="box-title">Serviço Executado:</div>
+    <div class="box-title">Serviço Técnico Realizado:</div>
     <div class="box-content">{{ os['servico_executado'] or 'Em andamento' }}</div>
   </div>
 
-  <table class="finance-table">
-    <thead>
-      <tr>
-        <th>Descrição de Custos & Insumos</th>
-        <th style="width: 80px; text-align: center;">Qtd / Horas</th>
-        <th style="width: 90px; text-align: right;">Valor Unit.</th>
-        <th style="width: 90px; text-align: right;">Subtotal</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td>Peças: {{ os['pecas'] or 'Nenhum insumo extra lançado' }}</td>
-        <td style="text-align: center;">-</td>
-        <td style="text-align: right;">-</td>
-        <td style="text-align: right;">R$ {{ "%.2f" % (os['custo_pecas'] or 0.0) }}</td>
-      </tr>
-      <tr>
-        <td>Mão de Obra Técnica Especializada</td>
-        <td style="text-align: center;">{{ "%.1f" % (os['horas_trabalhadas'] or 0.0) }} h</td>
-        <td style="text-align: right;">R$ {{ "%.2f" % (os['valor_hora'] or 0.0) }}</td>
-        <td style="text-align: right;">R$ {{ "%.2f" % ((os['horas_trabalhadas'] or 0.0) * (os['valor_hora'] or 0.0)) }}</td>
-      </tr>
-      <tr class="total-row">
-        <td colspan="3" style="text-align: right;">VALOR TOTAL DA ORDEM DE SERVIÇO:</td>
-        <td style="text-align: right;">R$ {{ "%.2f" % (os['custo_total'] or 0.0) }}</td>
-      </tr>
-    </tbody>
-  </table>
+  <div class="box-section">
+    <div class="box-title">Peças & Materiais Utilizados:</div>
+    <div class="box-content">{{ os['pecas'] or 'Nenhum material/peça extra cadastrado' }}</div>
+  </div>
 
   <table class="signatures">
     <tr>
       <td style="width: 50%; text-align: center;">
-        <div class="sig-line">Assinatura do Solicitante / Empresa</div>
+        <div class="sig-line">Assinatura do Solicitante / Visto da Empresa</div>
       </td>
       <td style="width: 50%; text-align: center;">
         <div class="sig-line">{{ os['operador'] or 'Operador Técnico' }}</div>
@@ -862,6 +969,7 @@ RECIBO_A4_HTML = """<!DOCTYPE html>
 # ================= ROTAS =================
 @app.route("/")
 def index():
+  cfg = obter_configuracoes()
   with get_db() as conn:
     ordens = conn.execute(
         "SELECT * FROM ordens_servico ORDER BY id DESC"
@@ -870,22 +978,53 @@ def index():
     total_os = len(ordens)
     os_abertas = sum(1 for o in ordens if o["status"] == "ABERTA")
     os_concluidas = sum(1 for o in ordens if o["status"] == "CONCLUÍDA")
-    faturamento_total = sum(
-        (o["custo_total"] or 0.0) for o in ordens if o["status"] == "CONCLUÍDA"
-    )
 
   return render_template_string(
       INDEX_HTML,
+      cfg=cfg,
       ordens=ordens,
       total_os=total_os,
       os_abertas=os_abertas,
       os_concluidas=os_concluidas,
-      faturamento_total=faturamento_total,
   )
+
+
+@app.route("/configuracoes", methods=["GET", "POST"])
+def configuracoes():
+  cfg = obter_configuracoes()
+  if request.method == "POST":
+    nome_empresa = request.form["nome_empresa"].strip()
+    subtitulo = request.form.get("subtitulo", "").strip()
+    contato = request.form.get("contato", "").strip()
+    remover_logo = request.form.get("remover_logo") == "1"
+
+    logo_base64 = "" if remover_logo else cfg["logo_base64"]
+
+    arquivo_logo = request.files.get("logo")
+    if arquivo_logo and arquivo_logo.filename != "":
+      bytes_imagem = arquivo_logo.read()
+      b64_str = base64.b64encode(bytes_imagem).decode("utf-8")
+      mimetype = arquivo_logo.content_type or "image/png"
+      logo_base64 = f"data:{mimetype};base64,{b64_str}"
+
+    with get_db() as conn:
+      conn.execute(
+          """
+                UPDATE configuracoes 
+                SET nome_empresa = ?, subtitulo = ?, contato = ?, logo_base64 = ?
+                WHERE id = 1
+            """,
+          (nome_empresa, subtitulo, contato, logo_base64),
+      )
+      conn.commit()
+    return redirect(url_for("index"))
+
+  return render_template_string(CONFIGURACOES_HTML, cfg=cfg)
 
 
 @app.route("/nova-os", methods=["GET", "POST"])
 def nova_os():
+  cfg = obter_configuracoes()
   if request.method == "POST":
     equipamento = request.form["equipamento"].strip()
     solicitante = request.form["solicitante"].strip()
@@ -904,11 +1043,12 @@ def nova_os():
       conn.commit()
     return redirect(url_for("index"))
 
-  return render_template_string(NOVA_OS_HTML)
+  return render_template_string(NOVA_OS_HTML, cfg=cfg)
 
 
 @app.route("/finalizar/<int:os_id>", methods=["GET", "POST"])
 def finalizar(os_id):
+  cfg = obter_configuracoes()
   with get_db() as conn:
     os_item = conn.execute(
         "SELECT * FROM ordens_servico WHERE id = ?", (os_id,)
@@ -923,41 +1063,36 @@ def finalizar(os_id):
     servico_executado = request.form["servico_executado"].strip()
     pecas = request.form.get("pecas", "").strip()
 
-    custo_pecas = float(request.form.get("custo_pecas", 0) or 0)
-    horas_trabalhadas = float(request.form.get("horas_trabalhadas", 0) or 0)
-    valor_hora = float(request.form.get("valor_hora", 0) or 0)
-    custo_total = custo_pecas + (horas_trabalhadas * valor_hora)
-
     with get_db() as conn:
       conn.execute(
           """
-                UPDATE ordens_servico
+                UPDATE ordens_servico 
                 SET operador = ?, data_finalizacao = ?, servico_executado = ?,
-                    pecas = ?, custo_pecas = ?, horas_trabalhadas = ?,
-                    valor_hora = ?, custo_total = ?, status = 'CONCLUÍDA'
+                    pecas = ?, status = 'CONCLUÍDA'
                 WHERE id = ?
             """,
-          (
-              operador,
-              data_finalizacao,
-              servico_executado,
-              pecas,
-              custo_pecas,
-              horas_trabalhadas,
-              valor_hora,
-              custo_total,
-              os_id,
-          ),
+          (operador, data_finalizacao, servico_executado, pecas, os_id),
       )
       conn.commit()
     return redirect(url_for("recibo", os_id=os_id))
 
   agora = datetime.now().strftime("%d/%m/%Y %H:%M")
-  return render_template_string(FINALIZAR_OS_HTML, os=os_item, agora=agora)
+  return render_template_string(
+      FINALIZAR_OS_HTML, cfg=cfg, os=os_item, agora=agora
+  )
+
+
+@app.route("/excluir/<int:os_id>")
+def excluir(os_id):
+  with get_db() as conn:
+    conn.execute("DELETE FROM ordens_servico WHERE id = ?", (os_id,))
+    conn.commit()
+  return redirect(url_for("index"))
 
 
 @app.route("/recibo/<int:os_id>")
 def recibo(os_id):
+  cfg = obter_configuracoes()
   with get_db() as conn:
     os_item = conn.execute(
         "SELECT * FROM ordens_servico WHERE id = ?", (os_id,)
@@ -966,11 +1101,12 @@ def recibo(os_id):
   if not os_item:
     return "Ordem de Serviço não encontrada", 404
 
-  return render_template_string(RECIBO_A4_HTML, os=os_item)
+  return render_template_string(RECIBO_A4_HTML, cfg=cfg, os=os_item)
 
 
 @app.route("/recibo/<int:os_id>/pdf")
 def baixar_pdf(os_id):
+  cfg = obter_configuracoes()
   with get_db() as conn:
     os_item = conn.execute(
         "SELECT * FROM ordens_servico WHERE id = ?", (os_id,)
@@ -979,7 +1115,7 @@ def baixar_pdf(os_id):
   if not os_item:
     return "Ordem de Serviço não encontrada", 404
 
-  html_renderizado = render_template_string(RECIBO_A4_HTML, os=os_item)
+  html_renderizado = render_template_string(RECIBO_A4_HTML, cfg=cfg, os=os_item)
 
   if TEM_WEASYPRINT:
     pdf_bytes = weasyprint.HTML(string=html_renderizado).write_pdf()
@@ -990,7 +1126,7 @@ def baixar_pdf(os_id):
         download_name=f"Recibo_OS_{os_id:05d}.pdf",
     )
   else:
-    return render_template_string(RECIBO_A4_HTML, os=os_item)
+    return render_template_string(RECIBO_A4_HTML, cfg=cfg, os=os_item)
 
 
 if __name__ == "__main__":
