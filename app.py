@@ -33,6 +33,7 @@ GLOBAL_ACTIVITY = None
 DISPARAR_GALERIA = None
 DISPARAR_CAMERA = None
 FOTO_CAPTURADA_PENDENTE = None
+LOCAL_IP = "127.0.0.1"
 
 
 # ================= CONFIGURAÇÃO DO BANCO NO ANDROID =================
@@ -128,13 +129,18 @@ def obter_configuracoes():
 
 @app.context_processor
 def injetar_usuario_logado():
+  info = {
+      "usuario_logado_info": None,
+      "local_ip": LOCAL_IP,
+      "porta": 5000,
+  }
   if "usuario" in session:
     with get_db() as conn:
       u = conn.execute(
           "SELECT * FROM usuarios WHERE usuario = ?", (session["usuario"],)
       ).fetchone()
-      return {"usuario_logado_info": u}
-  return {"usuario_logado_info": None}
+      info["usuario_logado_info"] = u
+  return info
 
 
 # ================= PROTEÇÃO DE ROTAS =================
@@ -148,6 +154,7 @@ def checar_autenticacao():
       "api_abrir_galeria",
       "api_abrir_camera",
       "api_checar_foto",
+      "api_status_sync",
       "compartilhar_whatsapp",
       "abrir_navegador",
   ]
@@ -171,7 +178,22 @@ def tratar_erro(e):
   )
 
 
-# ================= ENDPOINTS DE SELEÇÃO NATIVA =================
+# ================= API DE SINCRONIZAÇÃO EM TEMPO REAL =================
+@app.route("/api/status-sync")
+def api_status_sync():
+  with get_db() as conn:
+    total = conn.execute(
+        "SELECT COUNT(*), MAX(id) FROM ordens_servico"
+    ).fetchone()
+    concluidas = conn.execute(
+        "SELECT COUNT(*) FROM ordens_servico WHERE status = 'CONCLUÍDA'"
+    ).fetchone()[0]
+  return jsonify(
+      {"total": total[0], "ultimo_id": total[1] or 0, "concluidas": concluidas}
+  )
+
+
+# ================= SELETORES NATIVOS =================
 @app.route("/api/abrir-galeria-android")
 def api_abrir_galeria():
   global FOTO_CAPTURADA_PENDENTE
@@ -426,7 +448,7 @@ BASE_HTML = """<!DOCTYPE html>
     </style>
 </head>
 <body>
-    <header class="m3-top-app-bar mb-4">
+    <header class="m3-top-app-bar mb-3">
         <div class="container d-flex justify-content-between align-items-center flex-wrap gap-2">
             <a href="/" class="text-decoration-none d-flex align-items-center gap-3">
                 {% if cfg['logo_base64'] %}
@@ -466,6 +488,21 @@ BASE_HTML = """<!DOCTYPE html>
             </div>
         </div>
     </header>
+
+    <!-- BARRA DE CONEXÃO ONLINE / REDE LOCAL -->
+    <div class="container mb-3">
+        <div class="p-2 px-3 bg-white border rounded-pill d-flex align-items-center justify-content-between flex-wrap gap-2 shadow-sm" style="font-size: 0.8rem;">
+            <div class="d-flex align-items-center gap-2">
+                <span class="badge bg-success rounded-pill d-inline-flex align-items-center gap-1">
+                    <span class="material-symbols-rounded fs-6">wifi</span> ONLINE NA REDE
+                </span>
+                <span class="text-secondary fw-semibold">Acesse de qualquer celular ou PC:</span>
+                <code class="fw-bold text-primary">http://{{ local_ip }}:{{ porta }}</code>
+            </div>
+            <span class="text-muted small d-none d-lg-inline">Sincronização em tempo real ativa</span>
+        </div>
+    </div>
+
     <main class="container">
         <!-- CORPO_DA_PAGINA -->
     </main>
@@ -476,6 +513,7 @@ BASE_HTML = """<!DOCTYPE html>
 </body>
 </html>"""
 
+# ================= DASHBOARD COM ATUALIZAÇÃO AUTOMÁTICA =================
 INDEX_BODY = """
 <div class="row g-3 mb-4">
     <div class="col-6 col-lg-3">
@@ -554,7 +592,15 @@ INDEX_BODY = """
                     <td class="ps-4 fw-bold text-primary">#{{ "%05d" % os['id'] }}</td>
                     <td class="fw-bold">{{ os['equipamento'] }}</td>
                     <td>{{ os['solicitante'] }}</td>
-                    <td>{% if os['operador'] %}<span class="fw-semibold">{{ os['operador'] }}</span>{% else %}<span class="text-muted fst-italic">Não atribuído</span>{% endif %}</td>
+                    <td>
+                        {% if os['operador'] %}
+                            <span class="fw-semibold text-dark">{{ os['operador'] }}</span>
+                        {% else %}
+                            <a href="/assumir-os/{{ os['id'] }}" class="btn btn-sm btn-outline-primary py-0 px-2 rounded-pill small" title="Assumir esta OS agora">
+                                <span class="material-symbols-rounded fs-6 align-middle">front_hand</span> Assumir
+                            </a>
+                        {% endif %}
+                    </td>
                     <td class="small text-muted">{{ os['data_abertura'] }}</td>
                     <td>
                         {% if os['status'] == 'ABERTA' %}
@@ -566,8 +612,8 @@ INDEX_BODY = """
                     <td class="text-end pe-4">
                         <div class="d-inline-flex align-items-center gap-1">
                             {% if os['status'] == 'ABERTA' %}
-                                <a href="/finalizar/{{ os['id'] }}" class="m3-btn-tonal py-1 px-3" title="Finalizar serviço">
-                                    <span class="material-symbols-rounded fs-6">build</span> Fechar
+                                <a href="/finalizar/{{ os['id'] }}" class="m3-btn-tonal py-1 px-3" title="Executar e finalizar">
+                                    <span class="material-symbols-rounded fs-6">build</span> Executar
                                 </a>
                             {% else %}
                                 <a href="/recibo/{{ os['id'] }}" class="m3-btn-filled py-1 px-3" style="background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container);" title="Visualizar Recibo">
@@ -584,7 +630,7 @@ INDEX_BODY = """
                 <tr>
                     <td colspan="7" class="text-center py-5 text-muted">
                         <span class="material-symbols-rounded fs-1 d-block mb-2 text-secondary">inbox</span>
-                        Nenhuma ordem de serviço cadastrada.
+                        Nenhuma ordem de serviço cadastrada no momento.
                     </td>
                 </tr>
                 {% endfor %}
@@ -595,6 +641,9 @@ INDEX_BODY = """
 
 <script>
 let abaAtiva = 'todas';
+let totalAtual = {{ total_os }};
+let concluidasAtual = {{ os_concluidas }};
+
 function selecionarAba(tipo) {
     abaAtiva = tipo;
     document.querySelectorAll('.m3-tab-item').forEach(el => el.classList.remove('active'));
@@ -603,6 +652,7 @@ function selecionarAba(tipo) {
     if (tipo === 'concluida') document.getElementById('tab-concluidas').classList.add('active');
     filtrarOrdens();
 }
+
 function filtrarOrdens() {
     let filtroTexto = document.getElementById("filtroM3").value.toLowerCase();
     let linhas = document.querySelectorAll(".linha-os");
@@ -614,16 +664,29 @@ function filtrarOrdens() {
         linha.style.display = (passaAba && passaTexto) ? "" : "none";
     });
 }
+
+// SINCRONIZAÇÃO EM TEMPO REAL: Verifica a cada 10 segundos se houve mudanças na rede
+setInterval(function() {
+    fetch('/api/status-sync')
+        .then(r => r.json())
+        .then(data => {
+            if (data.total !== totalAtual || data.concluidas !== concluidasAtual) {
+                // Atualiza a página suavemente para exibir os novos trabalhos
+                window.location.reload();
+            }
+        }).catch(e => {});
+}, 10000);
 </script>
 """
 
+# ================= NOVA / FINALIZAR OS =================
 NOVA_BODY = """
 <div class="row justify-content-center">
     <div class="col-12 col-md-8 col-lg-7">
         <div class="m3-card p-4 p-md-5">
             <div class="d-flex align-items-center gap-3 mb-4">
                 <div class="m3-icon-badge" style="background: var(--md-sys-color-primary-container);"><span class="material-symbols-rounded fs-2 text-primary">add_circle</span></div>
-                <div><h4 class="fw-bold mb-0">Nova Requisição</h4><span class="text-muted small">Abertura de chamado de manutenção</span></div>
+                <div><h4 class="fw-bold mb-0">Nova Requisição</h4><span class="text-muted small">Disponível em tempo real para toda a equipe</span></div>
             </div>
             <form method="POST">
                 <div class="mb-3"><label class="form-label small fw-bold text-uppercase text-secondary">Equipamento ou Local:</label><input type="text" name="equipamento" class="form-control m3-input" placeholder="Ex: Bomba D'água, Elevador 01, Gerador" required autofocus></div>
@@ -631,7 +694,7 @@ NOVA_BODY = """
                 <div class="mb-4"><label class="form-label small fw-bold text-uppercase text-secondary">Descrição da Ocorrência:</label><textarea name="problema" rows="4" class="form-control m3-input" placeholder="Descreva os ruídos, defeitos ou inspeção requerida..." required></textarea></div>
                 <div class="d-flex justify-content-between align-items-center pt-2">
                     <a href="/" class="m3-btn-tonal">Voltar</a>
-                    <button type="submit" class="m3-btn-filled"><span class="material-symbols-rounded">send</span> Salvar Chamado</button>
+                    <button type="submit" class="m3-btn-filled"><span class="material-symbols-rounded">send</span> Publicar Chamado</button>
                 </div>
             </form>
         </div>
@@ -659,14 +722,20 @@ FINALIZAR_BODY = """
             </div>
             <form method="POST">
                 <div class="row g-3 mb-3">
-                    <div class="col-12 col-md-6"><label class="form-label small fw-bold text-uppercase text-secondary">Técnico / Operador:</label><input type="text" name="operador" class="form-control m3-input" placeholder="Nome completo do executor" required autofocus></div>
-                    <div class="col-12 col-md-6"><label class="form-label small fw-bold text-uppercase text-secondary">Data e Hora de Conclusão:</label><input type="text" name="data_finalizacao" class="form-control m3-input" value="{{ agora }}" required></div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-bold text-uppercase text-secondary">Técnico / Operador:</label>
+                        <input type="text" name="operador" class="form-control m3-input" value="{{ os['operador'] or session.get('nome', '') }}" placeholder="Nome do executor" required autofocus>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-bold text-uppercase text-secondary">Data e Hora de Conclusão:</label>
+                        <input type="text" name="data_finalizacao" class="form-control m3-input" value="{{ agora }}" required>
+                    </div>
                 </div>
                 <div class="mb-3"><label class="form-label small fw-bold text-uppercase text-secondary">Peças & Insumos Aplicados:</label><input type="text" name="pecas" class="form-control m3-input" placeholder="Ex: 1x Relé térmico, 2x Vedações, 1L Óleo lubrificante"></div>
                 <div class="mb-4"><label class="form-label small fw-bold text-uppercase text-secondary">Serviço Técnico Executado:</label><textarea name="servico_executado" rows="4" class="form-control m3-input" placeholder="Descreva os reparos feitos, medições, testes e laudo da manutenção..." required></textarea></div>
                 <div class="d-flex justify-content-between align-items-center pt-2">
                     <a href="/" class="m3-btn-tonal">Voltar</a>
-                    <button type="submit" class="m3-btn-filled" style="background-color: #007a3d;"><span class="material-symbols-rounded">print</span> Finalizar e Emitir Recibo</button>
+                    <button type="submit" class="m3-btn-filled" style="background-color: #007a3d;"><span class="material-symbols-rounded">print</span> Concluir & Emitir Recibo</button>
                 </div>
             </form>
         </div>
@@ -674,6 +743,7 @@ FINALIZAR_BODY = """
 </div>
 """
 
+# ================= CONFIGURAÇÕES COM SELETOR NATIVO =================
 CONFIGURACOES_BODY = """
 <div class="row justify-content-center">
     <div class="col-12 col-md-8 col-lg-7">
@@ -826,6 +896,7 @@ function carregarArquivoLocal(input) {
 </script>
 """
 
+# ================= USUÁRIOS =================
 USUARIOS_BODY = """
 <div class="row justify-content-center">
     <div class="col-12 col-lg-10">
@@ -1015,6 +1086,7 @@ function carregarArquivoLocal(input) {
 </script>
 """
 
+# ================= EDITAR USUÁRIO =================
 EDITAR_USUARIO_BODY = """
 <div class="row justify-content-center">
     <div class="col-12 col-md-9 col-lg-8">
@@ -1170,6 +1242,7 @@ function carregarArquivoLocal(input) {
 </script>
 """
 
+# ================= RECIBO TÉCNICO A4 =================
 RECIBO_A4_HTML = """<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -1329,7 +1402,7 @@ def logout():
   return redirect(url_for("login"))
 
 
-# ================= ROTAS DE USUÁRIOS =================
+# ================= GESTÃO DE USUÁRIOS =================
 @app.route("/usuarios", methods=["GET", "POST"])
 def usuarios():
   cfg = obter_configuracoes()
@@ -1464,7 +1537,7 @@ def excluir_usuario(user_id):
   return redirect(url_for("usuarios"))
 
 
-# ================= ROTAS PRINCIPAIS =================
+# ================= GESTÃO DE ORDENS DE SERVIÇO =================
 @app.route("/")
 def index():
   cfg = obter_configuracoes()
@@ -1483,6 +1556,20 @@ def index():
       os_abertas=os_abertas,
       os_concluidas=os_concluidas,
   )
+
+
+# AÇÃO RÁPIDA: Operador logado assume a OS na hora
+@app.route("/assumir-os/<int:os_id>")
+def assumir_os(os_id):
+  nome_operador = session.get("nome", "Técnico")
+  with get_db() as conn:
+    conn.execute(
+        "UPDATE ordens_servico SET operador = ? WHERE id = ? AND status ="
+        " 'ABERTA'",
+        (nome_operador, os_id),
+    )
+    conn.commit()
+  return redirect(url_for("index"))
 
 
 @app.route("/configuracoes", methods=["GET", "POST"])
