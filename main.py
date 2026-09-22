@@ -16,6 +16,34 @@ def iniciar_servidor_flask():
   flask_module.app.run(host=HOST, port=PORT, debug=False, use_reloader=False)
 
 
+# ================= SELETOR NATIVO DE GALERIA E CÂMERA DO ANDROID =================
+def disparar_seletor_android():
+  if platform != "android":
+    return False
+  try:
+    from android.runnable import run_on_ui_thread
+    from jnius import autoclass
+
+    @run_on_ui_thread
+    def _abrir():
+      Intent = autoclass("android.content.Intent")
+      PythonActivity = autoclass("org.kivy.android.PythonActivity")
+      intent = Intent(Intent.ACTION_GET_CONTENT)
+      intent.setType("image/*")
+      PythonActivity.mActivity.startActivityForResult(
+          Intent.createChooser(intent, "Selecionar Imagem"), 1002
+      )
+
+    _abrir()
+    return True
+  except Exception as err:
+    print("Erro ao disparar seletor nativo Android:", err)
+    return False
+
+
+flask_module.DISPARAR_SELETOR = disparar_seletor_android
+
+
 class ManutencaoMobileApp(App):
 
   def build(self):
@@ -26,8 +54,11 @@ class ManutencaoMobileApp(App):
 
     if platform == "android":
       try:
+        from android import activity
         from android.permissions import request_permissions
+        from jnius import autoclass
 
+        # Permissões de câmera e galeria
         permissoes = [
             "android.permission.CAMERA",
             "android.permission.READ_EXTERNAL_STORAGE",
@@ -35,8 +66,50 @@ class ManutencaoMobileApp(App):
             "android.permission.READ_MEDIA_IMAGES",
         ]
         request_permissions(permissoes)
+
+        # Captura o retorno da Galeria / Câmera nativa do Android
+        def on_activity_result(request_code, result_code, intent):
+          if (
+              request_code == 1002
+              and result_code == -1
+              and intent is not None
+          ):
+            try:
+              uri = intent.getData()
+              PythonActivity = autoclass("org.kivy.android.PythonActivity")
+              cr = PythonActivity.mActivity.getContentResolver()
+
+              BitmapFactory = autoclass("android.graphics.BitmapFactory")
+              CompressFormat = autoclass(
+                  "android.graphics.Bitmap$CompressFormat"
+              )
+              ByteArrayOutputStream = autoclass(
+                  "java.io.ByteArrayOutputStream"
+              )
+              Base64 = autoclass("android.util.Base64")
+
+              bitmap = None
+              if uri is not None:
+                inputStream = cr.openInputStream(uri)
+                bitmap = BitmapFactory.decodeStream(inputStream)
+                inputStream.close()
+              elif intent.getExtras() is not None:
+                bitmap = intent.getExtras().get("data")
+
+              if bitmap is not None:
+                baos = ByteArrayOutputStream()
+                bitmap.compress(CompressFormat.JPEG, 85, baos)
+                b_bytes = baos.toByteArray()
+                b64_str = Base64.encodeToString(b_bytes, Base64.NO_WRAP)
+                flask_module.FOTO_CAPTURADA_PENDENTE = (
+                    f"data:image/jpeg;base64,{b64_str}"
+                )
+            except Exception as e:
+              print("Erro ao processar imagem da galeria:", e)
+
+        activity.bind(on_activity_result=on_activity_result)
       except Exception as erro:
-        print(f"Erro ao solicitar permissoes: {erro}")
+        print(f"Erro ao inicializar listeners Android: {erro}")
 
       Clock.schedule_once(self.carregar_webview_android, 2.5)
     else:
@@ -75,7 +148,6 @@ class ManutencaoMobileApp(App):
         settings.setDatabaseEnabled(True)
         settings.setAllowFileAccess(True)
 
-        # Guarda as referências necessárias para o serviço de impressão Android
         flask_module.GLOBAL_WEBVIEW = webview
         flask_module.GLOBAL_ACTIVITY = activity
 
