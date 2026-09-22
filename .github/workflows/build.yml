@@ -24,17 +24,22 @@ jobs:
           distribution: "temurin"
           java-version: "17"
 
-      - name: Instalar Dependências do Sistema
+      - name: Instalar Dependências do Sistema (Ubuntu 24.04)
         run: |
           sudo apt update
-          sudo apt install -y git zip unzip libtool autoconf automake ccache pkg-config zlib1g-dev libncurses5-dev libssl-dev
+          sudo apt install -y git zip unzip libtool autoconf automake ccache pkg-config \
+            zlib1g-dev libncurses-dev libssl-dev libffi-dev build-essential
 
-      - name: Instalar Buildozer e Cython
+      - name: Instalar Buildozer e Cython Compatível
         run: |
           pip install --upgrade pip
-          pip install cython buildozer
+          pip install "cython<3.0.0" buildozer
 
       - name: Compilar APK com Buildozer
+        env:
+          ANDROID_NDK_HOME: ""
+          ANDROID_NDK_ROOT: ""
+          ANDROID_NDK: ""
         run: |
           yes | buildozer android debug
 
