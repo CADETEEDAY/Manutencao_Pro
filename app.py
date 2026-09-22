@@ -4,7 +4,17 @@ import io
 import os
 import sqlite3
 import traceback
-from flask import Flask, redirect, render_template_string, request, send_file, url_for
+from flask import (
+    Flask,
+    flash,
+    redirect,
+    render_template_string,
+    request,
+    send_file,
+    session,
+    url_for,
+)
+from werkzeug.security import check_password_hash, generate_password_hash
 
 try:
   import weasyprint
@@ -14,6 +24,8 @@ except ImportError:
   TEM_WEASYPRINT = False
 
 app = Flask(__name__)
+# Chave fixa para manter o usuário logado mesmo se o app reiniciar no celular
+app.secret_key = "chave_mestra_manutencao_predial_segura_2026"
 
 
 # ================= CONFIGURAÇÃO DO BANCO NO ANDROID =================
@@ -54,7 +66,7 @@ def init_db():
                 status TEXT NOT NULL
             )
         """)
-    # Tabela de configurações e logotipo da empresa
+    # Tabela de configurações da empresa
     conn.execute("""
             CREATE TABLE IF NOT EXISTS configuracoes (
                 id INTEGER PRIMARY KEY,
@@ -64,11 +76,34 @@ def init_db():
                 logo_base64 TEXT
             )
         """)
-    # Configuração inicial
     conn.execute("""
             INSERT OR IGNORE INTO configuracoes (id, nome_empresa, subtitulo, contato, logo_base64)
             VALUES (1, 'Manutenção Predial', 'Gestão Operacional de Serviços', '', '')
         """)
+
+    # Tabela de usuários administradores
+    conn.execute("""
+            CREATE TABLE IF NOT EXISTS usuarios (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                usuario TEXT UNIQUE NOT NULL,
+                senha TEXT NOT NULL,
+                nome TEXT NOT NULL,
+                nivel TEXT DEFAULT 'admin'
+            )
+        """)
+
+    # Criação do usuário padrão caso não exista
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM usuarios WHERE usuario = 'admin'")
+    if not cursor.fetchone():
+      senha_hash = generate_password_hash("12345")
+      conn.execute(
+          """
+                INSERT INTO usuarios (usuario, senha, nome, nivel)
+                VALUES ('admin', ?, 'Administrador Principal', 'admin')
+            """,
+          (senha_hash,),
+      )
     conn.commit()
 
 
@@ -81,6 +116,14 @@ def obter_configuracoes():
         "SELECT * FROM configuracoes WHERE id = 1"
     ).fetchone()
   return cfg
+
+
+# ================= PROTEÇÃO DE ROTAS (LOGIN OBRIGATÓRIO) =================
+@app.before_request
+def checar_autenticacao():
+  rotas_livres = ["login", "static"]
+  if request.endpoint not in rotas_livres and "usuario" not in session:
+    return redirect(url_for("login"))
 
 
 @app.errorhandler(Exception)
@@ -98,6 +141,114 @@ def tratar_erro(e):
       500,
   )
 
+
+# ================= TEMPLATE DE LOGIN (MATERIAL 3) =================
+LOGIN_HTML = """<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Acesso ao Sistema &bull; {{ cfg['nome_empresa'] }}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f8f9ff;
+            font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            margin: 0;
+        }
+        .login-card {
+            background: #ffffff;
+            border-radius: 28px;
+            border: 1px solid #c3c7d0;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+            max-width: 400px;
+            width: 100%;
+            padding: 36px 30px;
+        }
+        .m3-input {
+            background: #f2f3f9;
+            border: 1px solid #c3c7d0;
+            border-radius: 16px;
+            padding: 14px 18px;
+            font-size: 0.95rem;
+            color: #191c20;
+            font-weight: 500;
+        }
+        .m3-input:focus {
+            background: #ffffff;
+            border-color: #00639b;
+            box-shadow: 0 0 0 3px rgba(0, 99, 155, 0.15);
+            outline: none;
+        }
+        .btn-entrar {
+            background-color: #00639b;
+            color: #ffffff;
+            border: none;
+            border-radius: 9999px;
+            padding: 14px 24px;
+            font-weight: 700;
+            font-size: 1rem;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            box-shadow: 0 4px 12px rgba(0, 99, 155, 0.2);
+            transition: opacity 0.2s;
+        }
+        .btn-entrar:hover { opacity: 0.93; color: #fff; }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <div class="text-center mb-4">
+            {% if cfg['logo_base64'] %}
+                <img src="{{ cfg['logo_base64'] }}" alt="Logo" style="max-height: 55px; max-width: 160px; object-fit: contain; margin-bottom: 12px;">
+            {% else %}
+                <div style="width: 58px; height: 58px; background: #cee5ff; border-radius: 20px; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 12px;">
+                    <span class="material-symbols-rounded text-primary fs-1">shield_person</span>
+                </div>
+            {% endif %}
+            <h4 class="fw-bold mb-1 text-dark">{{ cfg['nome_empresa'] }}</h4>
+            <span class="text-muted small">Controle de Acesso & Manutenção</span>
+        </div>
+
+        {% if erro %}
+            <div class="alert alert-danger py-2 px-3 small rounded-3 mb-3 border-0 d-flex align-items-center gap-2">
+                <span class="material-symbols-rounded fs-5">warning</span>
+                <span>{{ erro }}</span>
+            </div>
+        {% endif %}
+
+        <form method="POST">
+            <div class="mb-3">
+                <label class="form-label small fw-bold text-uppercase text-secondary">Usuário:</label>
+                <input type="text" name="usuario" class="form-control m3-input" placeholder="Digite seu login" required autofocus>
+            </div>
+            <div class="mb-4">
+                <label class="form-label small fw-bold text-uppercase text-secondary">Senha:</label>
+                <input type="password" name="senha" class="form-control m3-input" placeholder="Digite sua senha" required>
+            </div>
+            <button type="submit" class="btn btn-entrar">
+                <span class="material-symbols-rounded">login</span> Acessar Sistema
+            </button>
+        </form>
+
+        <div class="text-center mt-4 pt-3 border-top">
+            <span class="text-muted" style="font-size: 0.78rem;">Padrão: Usuário <strong>admin</strong> | Senha <strong>12345</strong></span>
+        </div>
+    </div>
+</body>
+</html>"""
 
 # ================= TEMPLATE BASE MATERIAL 3 EXPRESSIVE =================
 BASE_HTML = """<!DOCTYPE html>
@@ -319,7 +470,7 @@ BASE_HTML = """<!DOCTYPE html>
 </head>
 <body>
     <header class="m3-top-app-bar mb-4">
-        <div class="container d-flex justify-content-between align-items-center">
+        <div class="container d-flex justify-content-between align-items-center flex-wrap gap-2">
             <a href="/" class="text-decoration-none d-flex align-items-center gap-3">
                 {% if cfg['logo_base64'] %}
                     <img src="{{ cfg['logo_base64'] }}" alt="Logo" style="height: 42px; max-width: 90px; object-fit: contain; border-radius: 8px;">
@@ -334,9 +485,16 @@ BASE_HTML = """<!DOCTYPE html>
                 </div>
             </a>
             <div class="d-flex align-items-center gap-2">
+                <a href="/usuarios" class="m3-btn-tonal" title="Gerenciar Usuários">
+                    <span class="material-symbols-rounded fs-5">manage_accounts</span>
+                    <span class="d-none d-sm-inline">Usuários</span>
+                </a>
                 <a href="/configuracoes" class="m3-btn-tonal" title="Configurações do Aplicativo">
                     <span class="material-symbols-rounded fs-5">settings</span>
-                    <span class="d-none d-sm-inline">Configurações</span>
+                    <span class="d-none d-sm-inline">Ajustes</span>
+                </a>
+                <a href="/logout" class="m3-btn-danger" title="Encerrar Sessão">
+                    <span class="material-symbols-rounded fs-5">logout</span>
                 </a>
             </div>
         </div>
@@ -355,7 +513,6 @@ BASE_HTML = """<!DOCTYPE html>
 
 # ================= CORPOS DAS PÁGINAS =================
 INDEX_BODY = """
-<!-- CARDS DE ESTATÍSTICAS OPERACIONAIS -->
 <div class="row g-3 mb-4">
     <div class="col-6 col-lg-3">
         <div class="m3-stat-box m3-stat-primary">
@@ -401,7 +558,6 @@ INDEX_BODY = """
     </div>
 </div>
 
-<!-- BARRA DE PESQUISA E ABAS MATERIAL 3 -->
 <div class="m3-card p-3 mb-4">
     <div class="row align-items-center g-3">
         <div class="col-12 col-md-6">
@@ -426,7 +582,6 @@ INDEX_BODY = """
     </div>
 </div>
 
-<!-- LISTA DE ORDENS DE SERVIÇO -->
 <div class="m3-card overflow-hidden">
     <div class="table-responsive">
         <table class="table table-hover align-middle mb-0" id="tabelaM3">
@@ -665,7 +820,6 @@ CONFIGURACOES_BODY = """
                     <input type="text" name="contato" class="form-control m3-input" value="{{ cfg['contato'] }}" placeholder="Ex: Tel: (21) 99999-9999 | contato@empresa.com">
                 </div>
 
-                <!-- CAMPO PARA ADICIONAR LOGO -->
                 <div class="mb-4 p-3 bg-light rounded-3 border">
                     <label class="form-label small fw-bold text-uppercase text-secondary d-block">Logotipo da Empresa:</label>
                     {% if cfg['logo_base64'] %}
@@ -687,7 +841,6 @@ CONFIGURACOES_BODY = """
             </form>
         </div>
 
-        <!-- CARD DE CRÉDITOS DO DESENVOLVEDOR -->
         <div class="m3-card p-4 border" style="background: var(--md-sys-color-surface-container-low); border-radius: var(--md-shape-lg);">
             <div class="d-flex align-items-center gap-3 mb-3">
                 <div class="m3-icon-badge" style="background: var(--md-sys-color-primary-container);">
@@ -720,151 +873,154 @@ CONFIGURACOES_BODY = """
 </div>
 """
 
+# ================= TELA DE GERENCIAMENTO DE USUÁRIOS =================
+USUARIOS_BODY = """
+<div class="row justify-content-center">
+    <div class="col-12 col-md-9 col-lg-8">
+        <!-- FORMULÁRIO DE NOVO USUÁRIO -->
+        <div class="m3-card p-4 p-md-5 mb-4">
+            <div class="d-flex align-items-center gap-3 mb-4">
+                <div class="m3-icon-badge" style="background: var(--md-sys-color-primary-container);">
+                    <span class="material-symbols-rounded fs-2 text-primary">person_add</span>
+                </div>
+                <div>
+                    <h4 class="fw-bold mb-0">Cadastrar Administrador</h4>
+                    <span class="text-muted small">Adicione um novo usuário para gerenciar o aplicativo</span>
+                </div>
+            </div>
+
+            {% if msg_sucesso %}
+                <div class="alert alert-success py-2 px-3 small rounded-3 mb-3 border-0 d-flex align-items-center gap-2">
+                    <span class="material-symbols-rounded fs-5">check_circle</span>
+                    <span>{{ msg_sucesso }}</span>
+                </div>
+            {% endif %}
+            {% if msg_erro %}
+                <div class="alert alert-danger py-2 px-3 small rounded-3 mb-3 border-0 d-flex align-items-center gap-2">
+                    <span class="material-symbols-rounded fs-5">error</span>
+                    <span>{{ msg_erro }}</span>
+                </div>
+            {% endif %}
+
+            <form method="POST">
+                <div class="row g-3 mb-3">
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-bold text-uppercase text-secondary">Nome Completo:</label>
+                        <input type="text" name="nome" class="form-control m3-input" placeholder="Ex: Carlos Silva" required>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-bold text-uppercase text-secondary">Login de Acesso (Usuário):</label>
+                        <input type="text" name="usuario" class="form-control m3-input" placeholder="Ex: carlossilva" required>
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <label class="form-label small fw-bold text-uppercase text-secondary">Senha de Acesso:</label>
+                    <input type="password" name="senha" class="form-control m3-input" placeholder="Digite uma senha segura" required>
+                </div>
+
+                <div class="d-flex justify-content-between align-items-center pt-2">
+                    <a href="/" class="m3-btn-tonal">Voltar</a>
+                    <button type="submit" class="m3-btn-filled">
+                        <span class="material-symbols-rounded">how_to_reg</span> Salvar Administrador
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- LISTA DE USUÁRIOS ATIVOS -->
+        <div class="m3-card overflow-hidden">
+            <div class="p-3 bg-light border-bottom">
+                <h6 class="fw-bold mb-0 text-dark"><span class="material-symbols-rounded fs-5 align-middle">group</span> Administradores Cadastrados</h6>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead style="background: var(--md-sys-color-surface-container-low);">
+                        <tr class="small text-uppercase fw-bold text-secondary">
+                            <th class="ps-4 py-3">Nome</th>
+                            <th>Login</th>
+                            <th>Nível</th>
+                            <th class="text-end pe-4">Ação</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for u in lista_usuarios %}
+                        <tr>
+                            <td class="ps-4 fw-bold text-dark">{{ u['nome'] }}</td>
+                            <td><code>{{ u['usuario'] }}</code></td>
+                            <td><span class="badge bg-secondary">Administrador</span></td>
+                            <td class="text-end pe-4">
+                                {% if u['usuario'] != 'admin' and u['usuario'] != usuario_logado %}
+                                    <a href="/excluir-usuario/{{ u['id'] }}" class="m3-btn-danger" onclick="return confirm('Deseja excluir o usuário {{ u['usuario'] }}?');" title="Remover usuário">
+                                        <span class="material-symbols-rounded fs-6">delete</span>
+                                    </a>
+                                {% else %}
+                                    <span class="text-muted small fst-italic">Padrão / Logado</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+"""
+
 INDEX_HTML = BASE_HTML.replace("<!-- CORPO_DA_PAGINA -->", INDEX_BODY)
 NOVA_OS_HTML = BASE_HTML.replace("<!-- CORPO_DA_PAGINA -->", NOVA_BODY)
 FINALIZAR_OS_HTML = BASE_HTML.replace("<!-- CORPO_DA_PAGINA -->", FINALIZAR_BODY)
 CONFIGURACOES_HTML = BASE_HTML.replace(
     "<!-- CORPO_DA_PAGINA -->", CONFIGURACOES_BODY
 )
+USUARIOS_HTML = BASE_HTML.replace("<!-- CORPO_DA_PAGINA -->", USUARIOS_BODY)
 
-# ================= RECIBO TÉCNICO A4 (2 VIAS COM LOGO E SEM PAGAMENTO) =================
+# ================= RECIBO TÉCNICO A4 (2 VIAS) =================
 RECIBO_A4_HTML = """<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
 <title>Recibo OS #{{ "%05d" % os['id'] }} - {{ cfg['nome_empresa'] }}</title>
 <style>
-  @page {
-    size: A4;
-    margin: 8mm 10mm;
-    background-color: #ffffff;
-  }
-  *, *::before, *::after {
-    box-sizing: border-box;
-  }
+  @page { size: A4; margin: 8mm 10mm; background-color: #ffffff; }
+  *, *::before, *::after { box-sizing: border-box; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    color: #0f172a;
-    margin: 0;
-    padding: 0;
-    font-size: 8.5pt;
-    line-height: 1.25;
+    color: #0f172a; margin: 0; padding: 0; font-size: 8.5pt; line-height: 1.25;
   }
   .receipt-via {
-    height: 134mm;
-    border: 1px solid #cbd5e1;
-    border-radius: 6px;
-    padding: 10px 14px;
-    background: #ffffff;
+    height: 134mm; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px 14px; background: #ffffff;
   }
-  .header-table {
-    width: 100%;
-    border-bottom: 2px solid #0f172a;
-    padding-bottom: 4px;
-    margin-bottom: 6px;
-  }
-  .header-title {
-    font-size: 11pt;
-    font-weight: 800;
-    color: #0f172a;
-    text-transform: uppercase;
-  }
+  .header-table { width: 100%; border-bottom: 2px solid #0f172a; padding-bottom: 4px; margin-bottom: 6px; }
+  .header-title { font-size: 11pt; font-weight: 800; color: #0f172a; text-transform: uppercase; }
   .badge-via {
-    display: inline-block;
-    background-color: #0f172a;
-    color: #ffffff;
-    font-size: 7.5pt;
-    font-weight: 700;
-    padding: 2px 8px;
-    border-radius: 3px;
-    text-transform: uppercase;
+    display: inline-block; background-color: #0f172a; color: #ffffff; font-size: 7.5pt; font-weight: 700;
+    padding: 2px 8px; border-radius: 3px; text-transform: uppercase;
   }
-  .badge-via.operador {
-    background-color: #0284c7;
-  }
-  .os-number {
-    font-size: 11.5pt;
-    font-weight: 800;
-    color: #0f172a;
-    text-align: right;
-  }
-  .info-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-bottom: 6px;
-  }
-  .info-table td {
-    padding: 3px 4px;
-    vertical-align: top;
-  }
-  .label {
-    font-size: 7pt;
-    font-weight: 700;
-    color: #64748b;
-    text-transform: uppercase;
-  }
-  .value {
-    font-size: 8.5pt;
-    color: #0f172a;
-  }
+  .badge-via.operador { background-color: #0284c7; }
+  .os-number { font-size: 11.5pt; font-weight: 800; color: #0f172a; text-align: right; }
+  .info-table { width: 100%; border-collapse: collapse; margin-bottom: 6px; }
+  .info-table td { padding: 3px 4px; vertical-align: top; }
+  .label { font-size: 7pt; font-weight: 700; color: #64748b; text-transform: uppercase; }
+  .value { font-size: 8.5pt; color: #0f172a; }
   .box-section {
-    background-color: #f8fafc;
-    border: 1px solid #e2e8f0;
-    border-radius: 4px;
-    padding: 6px 8px;
-    margin-bottom: 6px;
+    background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; padding: 6px 8px; margin-bottom: 6px;
   }
-  .box-title {
-    font-size: 7pt;
-    font-weight: 700;
-    text-transform: uppercase;
-    color: #475569;
-    margin-bottom: 2px;
-  }
-  .box-content {
-    font-size: 8pt;
-    color: #1e293b;
-    white-space: pre-line;
-  }
-  .signatures {
-    width: 100%;
-    margin-top: 15px;
-  }
+  .box-title { font-size: 7pt; font-weight: 700; text-transform: uppercase; color: #475569; margin-bottom: 2px; }
+  .box-content { font-size: 8pt; color: #1e293b; white-space: pre-line; }
+  .signatures { width: 100%; margin-top: 15px; }
   .sig-line {
-    border-top: 1px solid #64748b;
-    width: 80%;
-    margin: 0 auto;
-    padding-top: 3px;
-    font-size: 7pt;
-    color: #475569;
-    text-align: center;
+    border-top: 1px solid #64748b; width: 80%; margin: 0 auto; padding-top: 3px; font-size: 7pt;
+    color: #475569; text-align: center;
   }
-  .cut-divider {
-    height: 10mm;
-    text-align: center;
-    position: relative;
-    margin: 1mm 0;
-  }
-  .cut-line {
-    border-top: 1.5px dashed #94a3b8;
-    position: absolute;
-    top: 50%;
-    width: 100%;
-  }
+  .cut-divider { height: 10mm; text-align: center; position: relative; margin: 1mm 0; }
+  .cut-line { border-top: 1.5px dashed #94a3b8; position: absolute; top: 50%; width: 100%; }
   .cut-text {
-    position: relative;
-    background: #ffffff;
-    display: inline-block;
-    padding: 0 10px;
-    font-size: 7.5pt;
-    font-weight: 700;
-    color: #64748b;
-    text-transform: uppercase;
-    letter-spacing: 1px;
+    position: relative; background: #ffffff; display: inline-block; padding: 0 10px; font-size: 7.5pt;
+    font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 1px;
   }
-  @media print {
-    .no-print { display: none !important; }
-  }
+  @media print { .no-print { display: none !important; } }
 </style>
 </head>
 <body>
@@ -966,7 +1122,99 @@ RECIBO_A4_HTML = """<!DOCTYPE html>
 """
 
 
-# ================= ROTAS =================
+# ================= ROTAS DE AUTENTICAÇÃO =================
+@app.route("/login", methods=["GET", "POST"])
+def login():
+  cfg = obter_configuracoes()
+  erro = None
+  if request.method == "POST":
+    usuario = request.form["usuario"].strip()
+    senha = request.form["senha"].strip()
+
+    with get_db() as conn:
+      user_row = conn.execute(
+          "SELECT * FROM usuarios WHERE usuario = ?", (usuario,)
+      ).fetchone()
+
+    if user_row and check_password_hash(user_row["senha"], senha):
+      session["usuario"] = user_row["usuario"]
+      session["nome"] = user_row["nome"]
+      return redirect(url_for("index"))
+    else:
+      erro = "Usuário ou senha inválidos. Tente novamente."
+
+  return render_template_string(LOGIN_HTML, cfg=cfg, erro=erro)
+
+
+@app.route("/logout")
+def logout():
+  session.clear()
+  return redirect(url_for("login"))
+
+
+# ================= ROTAS DE USUÁRIOS =================
+@app.route("/usuarios", methods=["GET", "POST"])
+def usuarios():
+  cfg = obter_configuracoes()
+  msg_sucesso = None
+  msg_erro = None
+
+  if request.method == "POST":
+    nome = request.form["nome"].strip()
+    novo_usuario = request.form["usuario"].strip().lower()
+    senha = request.form["senha"].strip()
+
+    if not nome or not novo_usuario or not senha:
+      msg_erro = "Preencha todos os campos do novo usuário."
+    else:
+      with get_db() as conn:
+        existe = conn.execute(
+            "SELECT id FROM usuarios WHERE usuario = ?", (novo_usuario,)
+        ).fetchone()
+        if existe:
+          msg_erro = f"O usuário '{novo_usuario}' já existe no sistema."
+        else:
+          conn.execute(
+              """
+                        INSERT INTO usuarios (usuario, senha, nome, nivel)
+                        VALUES (?, ?, ?, 'admin')
+                    """,
+              (novo_usuario, generate_password_hash(senha), nome),
+          )
+          conn.commit()
+          msg_sucesso = (
+              f"Administrador '{nome}' ({novo_usuario}) cadastrado com"
+              " sucesso!"
+          )
+
+  with get_db() as conn:
+    lista_usuarios = conn.execute(
+        "SELECT id, usuario, nome, nivel FROM usuarios ORDER BY id ASC"
+    ).fetchall()
+
+  return render_template_string(
+      USUARIOS_HTML,
+      cfg=cfg,
+      lista_usuarios=lista_usuarios,
+      usuario_logado=session.get("usuario"),
+      msg_sucesso=msg_sucesso,
+      msg_erro=msg_erro,
+  )
+
+
+@app.route("/excluir-usuario/<int:user_id>")
+def excluir_usuario(user_id):
+  with get_db() as conn:
+    user = conn.execute(
+        "SELECT usuario FROM usuarios WHERE id = ?", (user_id,)
+    ).fetchone()
+    if user and user["usuario"] != "admin" and user["usuario"] != session.get("usuario"):
+      conn.execute("DELETE FROM usuarios WHERE id = ?", (user_id,))
+      conn.commit()
+  return redirect(url_for("usuarios"))
+
+
+# ================= ROTAS PRINCIPAIS =================
 @app.route("/")
 def index():
   cfg = obter_configuracoes()
