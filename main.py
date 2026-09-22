@@ -1,4 +1,5 @@
 import os
+import socket
 import threading
 import time
 import app as flask_module
@@ -9,14 +10,28 @@ from kivy.uix.label import Label
 from kivy.utils import platform
 
 PORT = 5000
-HOST = "127.0.0.1"
+HOST = "0.0.0.0"
+
+
+def obter_ip_local():
+  try:
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.connect(("8.8.8.8", 80))
+    ip = s.getsockname()[0]
+    s.close()
+    return ip
+  except Exception:
+    return "127.0.0.1"
+
+
+flask_module.LOCAL_IP = obter_ip_local()
 
 
 def iniciar_servidor_flask():
   flask_module.app.run(host=HOST, port=PORT, debug=False, use_reloader=False)
 
 
-# ================= SELETORES NATIVOS ANDROID (GALERIA E CÂMERA) =================
+# ================= SELETORES NATIVOS ANDROID =================
 def disparar_galeria_android():
   if platform != "android":
     return False
@@ -76,19 +91,14 @@ def processar_imagem_resultado(intent):
   Base64 = autoclass("android.util.Base64")
 
   bitmap = None
-
-  # Caso 1: Imagem selecionada da Galeria (URI)
   uri = intent.getData() if intent is not None else None
   if uri is not None:
     cr = PythonActivity.mActivity.getContentResolver()
     inputStream = cr.openInputStream(uri)
-    # inSampleSize = 2 reduz o consumo de memória em 4x para evitar OutOfMemoryError
     options = BitmapFactory_Options()
     options.inSampleSize = 2
     bitmap = BitmapFactory.decodeStream(inputStream, None, options)
     inputStream.close()
-
-  # Caso 2: Foto tirada pela Câmera (Extras)
   elif intent is not None and intent.getExtras() is not None:
     bitmap = intent.getExtras().get("data")
 
@@ -123,7 +133,6 @@ class ManutencaoMobileApp(App):
         ]
         request_permissions(permissoes)
 
-        # Captura do resultado da Galeria e da Câmera
         def on_activity_result(request_code, result_code, intent):
           if request_code == 1002 and result_code == -1:
             try:
@@ -135,20 +144,20 @@ class ManutencaoMobileApp(App):
 
         activity.bind(on_activity_result=on_activity_result)
       except Exception as erro:
-        print(f"Erro ao inicializar listeners Android: {erro}")
+        print(f"Erro nos listeners: {erro}")
 
       Clock.schedule_once(self.carregar_webview_android, 2.5)
     else:
       import webbrowser
 
       Clock.schedule_once(
-          lambda dt: webbrowser.open(f"http://{HOST}:{PORT}/"), 1.5
+          lambda dt: webbrowser.open(f"http://127.0.0.1:{PORT}/"), 1.5
       )
 
     layout = BoxLayout(orientation="vertical", padding=40, spacing=20)
     layout.add_widget(
         Label(
-            text="Manutenção\n\nCarregando sistema, aguarde...",
+            text="Manutenção Conectada\n\nIniciando servidor na rede...",
             halign="center",
             valign="middle",
             font_size="20sp",
@@ -179,7 +188,7 @@ class ManutencaoMobileApp(App):
 
         webview.setWebViewClient(WebViewClient())
         activity.setContentView(webview)
-        webview.loadUrl(f"http://{HOST}:{PORT}/")
+        webview.loadUrl(f"http://127.0.0.1:{PORT}/")
 
       _criar_e_exibir()
     except Exception as erro:
