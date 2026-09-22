@@ -8,6 +8,7 @@ import urllib.parse
 from flask import (
     Flask,
     flash,
+    jsonify,
     redirect,
     render_template_string,
     request,
@@ -136,7 +137,15 @@ def injetar_usuario_logado():
 # ================= PROTEÇÃO DE ROTAS =================
 @app.before_request
 def checar_autenticacao():
-  rotas_livres = ["login", "static"]
+  # Rotas livres permitem a impressão e abertura direta sem deslogar o utilizador
+  rotas_livres = [
+      "login",
+      "static",
+      "recibo",
+      "api_imprimir",
+      "compartilhar_whatsapp",
+      "abrir_navegador",
+  ]
   if request.endpoint not in rotas_livres and "usuario" not in session:
     return redirect(url_for("login"))
 
@@ -157,9 +166,9 @@ def tratar_erro(e):
   )
 
 
-# ================= SERVIÇOS NATIVOS: IMPRESSÃO E WHATSAPP =================
-@app.route("/imprimir-nativo/<int:os_id>")
-def imprimir_nativo(os_id):
+# ================= SERVIÇO NATIVO DE IMPRESSÃO ANDROID (ASSÍNCRONO) =================
+@app.route("/api/imprimir/<int:os_id>")
+def api_imprimir(os_id):
   global GLOBAL_WEBVIEW, GLOBAL_ACTIVITY
   if GLOBAL_WEBVIEW and GLOBAL_ACTIVITY:
     try:
@@ -168,23 +177,33 @@ def imprimir_nativo(os_id):
 
       @run_on_ui_thread
       def _exec_print():
-        Context = autoclass("android.content.Context")
-        PrintAttributes = autoclass("android.print.PrintAttributes")
-        printManager = GLOBAL_ACTIVITY.getSystemService(Context.PRINT_SERVICE)
-        nome_job = f"Recibo_OS_{os_id:05d}"
-        printAdapter = GLOBAL_WEBVIEW.createPrintDocumentAdapter(nome_job)
-        builder = PrintAttributes.Builder()
-        builder.setMediaSize(PrintAttributes.MediaSize.ISO_A4)
-        printManager.print(nome_job, printAdapter, builder.build())
+        try:
+          Context = autoclass("android.content.Context")
+          MediaSize = autoclass("android.print.PrintAttributes$MediaSize")
+          Builder = autoclass("android.print.PrintAttributes$Builder")
+
+          activity = GLOBAL_ACTIVITY
+          printManager = activity.getSystemService(Context.PRINT_SERVICE)
+          nome_job = f"Recibo_OS_{os_id:05d}"
+          printAdapter = GLOBAL_WEBVIEW.createPrintDocumentAdapter(nome_job)
+
+          builder = Builder()
+          builder.setMediaSize(MediaSize.ISO_A4)
+
+          printManager.print(nome_job, printAdapter, builder.build())
+        except Exception as err:
+          print("Erro ao executar chamada no PrintManager:", err)
+          traceback.print_exc()
 
       _exec_print()
-      return redirect(url_for("recibo", os_id=os_id))
+      return jsonify({"sucesso": True})
     except Exception as e:
-      return redirect(f"/abrir-navegador?rota=/recibo/{os_id}%3Fprint=1")
-  else:
-    return redirect(f"/abrir-navegador?rota=/recibo/{os_id}%3Fprint=1")
+      print("Erro ao inicializar PyJNIus Print:", e)
+      return jsonify({"sucesso": False, "erro": str(e)})
+  return jsonify({"sucesso": False, "motivo": "webview_indisponivel"})
 
 
+# ================= PARTILHA DIRETA POR WHATSAPP =================
 @app.route("/compartilhar-whatsapp/<int:os_id>")
 def compartilhar_whatsapp(os_id):
   cfg = obter_configuracoes()
@@ -239,6 +258,7 @@ _Comprovante emitido via Sistema de Manutenção_"""
   return redirect(url_for("recibo", os_id=os_id))
 
 
+# ================= ABERTURA NO NAVEGADOR =================
 @app.route("/abrir-navegador")
 def abrir_navegador():
   rota = request.args.get("rota", "/")
@@ -1181,7 +1201,7 @@ CONFIGURACOES_HTML = BASE_HTML.replace(
 )
 USUARIOS_HTML = BASE_HTML.replace("<!-- CORPO_DA_PAGINA -->", USUARIOS_BODY)
 
-# ================= RECIBO TÉCNICO A4 (2 VIAS COM WHATSAPP) =================
+# ================= RECIBO TÉCNICO A4 (2 VIAS COM IMPRESSÃO CORRIGIDA) =================
 RECIBO_A4_HTML = """<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -1231,10 +1251,10 @@ RECIBO_A4_HTML = """<!DOCTYPE html>
 <body>
 
 <div class="no-print" style="background:#e0f2fe; padding:12px; margin-bottom:15px; border-radius:12px; text-align:center; display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:10px;">
-    <!-- 1. Impressão direta Android -->
-    <a href="/imprimir-nativo/{{ os['id'] }}" style="padding:10px 22px; font-weight:bold; background:#00639b; color:#fff; border-radius:30px; font-size:10pt; text-decoration:none; display:inline-flex; align-items:center; gap:6px; box-shadow:0 2px 6px rgba(0,99,155,0.3);">
+    <!-- 1. Botão Principal: Dispara a impressão nativa sem recarregar a tela -->
+    <button type="button" id="btnImprimir" onclick="executarImpressao()" style="padding:10px 22px; font-weight:bold; background:#00639b; color:#fff; border:none; border-radius:30px; font-size:10pt; cursor:pointer; display:inline-flex; align-items:center; gap:6px; box-shadow:0 2px 6px rgba(0,99,155,0.3);">
         🖨️ Imprimir / Salvar PDF
-    </a>
+    </button>
 
     <!-- 2. Partilha Direta por WhatsApp -->
     <a href="/compartilhar-whatsapp/{{ os['id'] }}" style="padding:10px 20px; font-weight:bold; background:#25d366; color:#fff; border-radius:30px; font-size:10pt; text-decoration:none; display:inline-flex; align-items:center; gap:6px; box-shadow:0 2px 6px rgba(37,211,102,0.35);">
@@ -1252,10 +1272,31 @@ RECIBO_A4_HTML = """<!DOCTYPE html>
 </div>
 
 <script>
+function executarImpressao() {
+    var btn = document.getElementById('btnImprimir');
+    if (btn) btn.innerHTML = '⏳ Gerando PDF...';
+
+    // Disparo assíncrono que não destrói o DOM da WebView
+    fetch('/api/imprimir/{{ os["id"] }}')
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+            if (btn) btn.innerHTML = '🖨️ Imprimir / Salvar PDF';
+            if (!data.sucesso) {
+                // Se não estiver na WebView (ex: navegador Chrome), aciona window.print
+                window.print();
+            }
+        })
+        .catch(function(err) {
+            if (btn) btn.innerHTML = '🖨️ Imprimir / Salvar PDF';
+            window.print();
+        });
+}
+
+// Se o recibo foi aberto pelo Chrome com ?print=1, dispara a impressão automaticamente
 if (window.location.search.indexOf('print=1') !== -1) {
     setTimeout(function() {
         window.print();
-    }, 700);
+    }, 600);
 }
 </script>
 
@@ -1599,27 +1640,7 @@ def recibo(os_id):
 
 @app.route("/recibo/<int:os_id>/pdf")
 def baixar_pdf(os_id):
-  cfg = obter_configuracoes()
-  with get_db() as conn:
-    os_item = conn.execute(
-        "SELECT * FROM ordens_servico WHERE id = ?", (os_id,)
-    ).fetchone()
-
-  if not os_item:
-    return "Ordem de Serviço não encontrada", 404
-
-  html_renderizado = render_template_string(RECIBO_A4_HTML, cfg=cfg, os=os_item)
-
-  if TEM_WEASYPRINT:
-    pdf_bytes = weasyprint.HTML(string=html_renderizado).write_pdf()
-    return send_file(
-        io.BytesIO(pdf_bytes),
-        mimetype="application/pdf",
-        as_attachment=True,
-        download_name=f"Recibo_OS_{os_id:05d}.pdf",
-    )
-  else:
-    return render_template_string(RECIBO_A4_HTML, cfg=cfg, os=os_item)
+  return redirect(url_for("recibo", os_id=os_id))
 
 
 if __name__ == "__main__":
