@@ -8,7 +8,7 @@ source.include_exts = py,png,jpg,kv,atlas,db,html,css,js
 
 version = 1.0.0
 
-# O Flask instala automaticamente jinja2, werkzeug e markupsafe via wheel
+# Deixe apenas estes pacotes essenciais
 requirements = python3,kivy,flask,setuptools
 
 android.permissions = INTERNET,ACCESS_NETWORK_STATE,WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE
@@ -18,10 +18,9 @@ fullscreen = 0
 android.api = 33
 android.minapi = 21
 android.ndk = 25b
-android.build_tools_version = 33.0.2
 android.accept_sdk_license = True
 
-# Apenas arquitetura 64-bit para evitar falhas de compilação cruzada
+# Apenas arm64 para compilação rápida e sem conflito de arquitetura
 android.archs = arm64-v8a
 
 entrypoint = main.py
