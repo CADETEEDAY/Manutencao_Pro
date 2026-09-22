@@ -19,6 +19,10 @@ android.minapi = 21
 android.ndk = 25b
 android.archs = arm64-v8a, armeabi-v7a
 
+# Fixa versão estável e aceita licenças automaticamente
+android.accept_sdk_license = True
+android.build_tools_version = 33.0.2
+
 entrypoint = main.py
 
 [buildozer]
