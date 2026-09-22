@@ -16,8 +16,8 @@ def iniciar_servidor_flask():
   flask_module.app.run(host=HOST, port=PORT, debug=False, use_reloader=False)
 
 
-# ================= SELETOR NATIVO DE GALERIA E CÂMERA DO ANDROID =================
-def disparar_seletor_android():
+# ================= SELETORES NATIVOS ANDROID (GALERIA E CÂMERA) =================
+def disparar_galeria_android():
   if platform != "android":
     return False
   try:
@@ -25,23 +25,81 @@ def disparar_seletor_android():
     from jnius import autoclass
 
     @run_on_ui_thread
-    def _abrir():
+    def _abrir_galeria():
       Intent = autoclass("android.content.Intent")
       PythonActivity = autoclass("org.kivy.android.PythonActivity")
       intent = Intent(Intent.ACTION_GET_CONTENT)
       intent.setType("image/*")
-      PythonActivity.mActivity.startActivityForResult(
-          Intent.createChooser(intent, "Selecionar Imagem"), 1002
-      )
+      PythonActivity.mActivity.startActivityForResult(intent, 1002)
 
-    _abrir()
+    _abrir_galeria()
     return True
-  except Exception as err:
-    print("Erro ao disparar seletor nativo Android:", err)
+  except Exception as e:
+    print("Erro ao abrir galeria:", e)
     return False
 
 
-flask_module.DISPARAR_SELETOR = disparar_seletor_android
+def disparar_camera_android():
+  if platform != "android":
+    return False
+  try:
+    from android.runnable import run_on_ui_thread
+    from jnius import autoclass
+
+    @run_on_ui_thread
+    def _abrir_camera():
+      Intent = autoclass("android.content.Intent")
+      MediaStore = autoclass("android.provider.MediaStore")
+      PythonActivity = autoclass("org.kivy.android.PythonActivity")
+      intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
+      PythonActivity.mActivity.startActivityForResult(intent, 1002)
+
+    _abrir_camera()
+    return True
+  except Exception as e:
+    print("Erro ao abrir camera:", e)
+    return False
+
+
+flask_module.DISPARAR_GALERIA = disparar_galeria_android
+flask_module.DISPARAR_CAMERA = disparar_camera_android
+
+
+def processar_imagem_resultado(intent):
+  from jnius import autoclass
+
+  PythonActivity = autoclass("org.kivy.android.PythonActivity")
+  BitmapFactory = autoclass("android.graphics.BitmapFactory")
+  BitmapFactory_Options = autoclass("android.graphics.BitmapFactory$Options")
+  CompressFormat = autoclass("android.graphics.Bitmap$CompressFormat")
+  ByteArrayOutputStream = autoclass("java.io.ByteArrayOutputStream")
+  Base64 = autoclass("android.util.Base64")
+
+  bitmap = None
+
+  # Caso 1: Imagem selecionada da Galeria (URI)
+  uri = intent.getData() if intent is not None else None
+  if uri is not None:
+    cr = PythonActivity.mActivity.getContentResolver()
+    inputStream = cr.openInputStream(uri)
+    # inSampleSize = 2 reduz o consumo de memória em 4x para evitar OutOfMemoryError
+    options = BitmapFactory_Options()
+    options.inSampleSize = 2
+    bitmap = BitmapFactory.decodeStream(inputStream, None, options)
+    inputStream.close()
+
+  # Caso 2: Foto tirada pela Câmera (Extras)
+  elif intent is not None and intent.getExtras() is not None:
+    bitmap = intent.getExtras().get("data")
+
+  if bitmap is not None:
+    baos = ByteArrayOutputStream()
+    formato_jpeg = CompressFormat.valueOf("JPEG")
+    bitmap.compress(formato_jpeg, 85, baos)
+    b_bytes = baos.toByteArray()
+    b64_str = Base64.encodeToString(b_bytes, Base64.NO_WRAP)
+    return f"data:image/jpeg;base64,{b64_str}"
+  return None
 
 
 class ManutencaoMobileApp(App):
@@ -56,9 +114,7 @@ class ManutencaoMobileApp(App):
       try:
         from android import activity
         from android.permissions import request_permissions
-        from jnius import autoclass
 
-        # Permissões de câmera e galeria
         permissoes = [
             "android.permission.CAMERA",
             "android.permission.READ_EXTERNAL_STORAGE",
@@ -67,45 +123,15 @@ class ManutencaoMobileApp(App):
         ]
         request_permissions(permissoes)
 
-        # Captura o retorno da Galeria / Câmera nativa do Android
+        # Captura do resultado da Galeria e da Câmera
         def on_activity_result(request_code, result_code, intent):
-          if (
-              request_code == 1002
-              and result_code == -1
-              and intent is not None
-          ):
+          if request_code == 1002 and result_code == -1:
             try:
-              uri = intent.getData()
-              PythonActivity = autoclass("org.kivy.android.PythonActivity")
-              cr = PythonActivity.mActivity.getContentResolver()
-
-              BitmapFactory = autoclass("android.graphics.BitmapFactory")
-              CompressFormat = autoclass(
-                  "android.graphics.Bitmap$CompressFormat"
-              )
-              ByteArrayOutputStream = autoclass(
-                  "java.io.ByteArrayOutputStream"
-              )
-              Base64 = autoclass("android.util.Base64")
-
-              bitmap = None
-              if uri is not None:
-                inputStream = cr.openInputStream(uri)
-                bitmap = BitmapFactory.decodeStream(inputStream)
-                inputStream.close()
-              elif intent.getExtras() is not None:
-                bitmap = intent.getExtras().get("data")
-
-              if bitmap is not None:
-                baos = ByteArrayOutputStream()
-                bitmap.compress(CompressFormat.JPEG, 85, baos)
-                b_bytes = baos.toByteArray()
-                b64_str = Base64.encodeToString(b_bytes, Base64.NO_WRAP)
-                flask_module.FOTO_CAPTURADA_PENDENTE = (
-                    f"data:image/jpeg;base64,{b64_str}"
-                )
+              b64 = processar_imagem_resultado(intent)
+              if b64:
+                flask_module.FOTO_CAPTURADA_PENDENTE = b64
             except Exception as e:
-              print("Erro ao processar imagem da galeria:", e)
+              print("Erro ao processar imagem capturada:", e)
 
         activity.bind(on_activity_result=on_activity_result)
       except Exception as erro:
