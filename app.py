@@ -24,7 +24,7 @@ except ImportError:
   TEM_WEASYPRINT = False
 
 app = Flask(__name__)
-# Chave fixa para manter o usuário logado mesmo se o app reiniciar no celular
+# Chave fixa para manter a sessão ativa no Android
 app.secret_key = "chave_mestra_manutencao_predial_segura_2026"
 
 
@@ -81,26 +81,33 @@ def init_db():
             VALUES (1, 'Manutenção Predial', 'Gestão Operacional de Serviços', '', '')
         """)
 
-    # Tabela de usuários administradores
+    # Tabela de usuários administradores com suporte a foto 3x4
     conn.execute("""
             CREATE TABLE IF NOT EXISTS usuarios (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 usuario TEXT UNIQUE NOT NULL,
                 senha TEXT NOT NULL,
                 nome TEXT NOT NULL,
-                nivel TEXT DEFAULT 'admin'
+                nivel TEXT DEFAULT 'admin',
+                foto_base64 TEXT
             )
         """)
 
-    # Criação do usuário padrão caso não exista
+    # Migração automática caso a tabela já existisse sem a coluna foto_base64
     cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(usuarios)")
+    colunas = [col[1] for col in cursor.fetchall()]
+    if "foto_base64" not in colunas:
+      conn.execute("ALTER TABLE usuarios ADD COLUMN foto_base64 TEXT")
+
+    # Criação do usuário padrão caso não exista
     cursor.execute("SELECT id FROM usuarios WHERE usuario = 'admin'")
     if not cursor.fetchone():
       senha_hash = generate_password_hash("12345")
       conn.execute(
           """
-                INSERT INTO usuarios (usuario, senha, nome, nivel)
-                VALUES ('admin', ?, 'Administrador Principal', 'admin')
+                INSERT INTO usuarios (usuario, senha, nome, nivel, foto_base64)
+                VALUES ('admin', ?, 'Administrador Principal', 'admin', '')
             """,
           (senha_hash,),
       )
@@ -116,6 +123,18 @@ def obter_configuracoes():
         "SELECT * FROM configuracoes WHERE id = 1"
     ).fetchone()
   return cfg
+
+
+# Injeta automaticamente as informações e foto do usuário logado em todas as páginas
+@app.context_processor
+def injetar_usuario_logado():
+  if "usuario" in session:
+    with get_db() as conn:
+      u = conn.execute(
+          "SELECT * FROM usuarios WHERE usuario = ?", (session["usuario"],)
+      ).fetchone()
+      return {"usuario_logado_info": u}
+  return {"usuario_logado_info": None}
 
 
 # ================= PROTEÇÃO DE ROTAS (LOGIN OBRIGATÓRIO) =================
@@ -142,7 +161,7 @@ def tratar_erro(e):
   )
 
 
-# ================= TEMPLATE DE LOGIN (MATERIAL 3) =================
+# ================= TEMPLATE DE LOGIN =================
 LOGIN_HTML = """<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -306,7 +325,7 @@ BASE_HTML = """<!DOCTYPE html>
 
         .m3-top-app-bar {
             background: var(--md-sys-color-surface-container-low);
-            padding: 12px 20px;
+            padding: 10px 20px;
             position: sticky;
             top: 0;
             z-index: 1000;
@@ -466,6 +485,24 @@ BASE_HTML = """<!DOCTYPE html>
             gap: 4px;
             text-decoration: none;
         }
+
+        /* Avatar 3x4 / circular na barra superior */
+        .user-top-badge {
+            background: #ffffff;
+            border: 1px solid var(--md-sys-color-outline-variant);
+            border-radius: var(--md-shape-full);
+            padding: 3px 12px 3px 4px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .avatar-3x4-top {
+            width: 28px;
+            height: 36px;
+            object-fit: cover;
+            border-radius: 6px;
+            border: 1px solid #cbd5e1;
+        }
     </style>
 </head>
 <body>
@@ -484,7 +521,20 @@ BASE_HTML = """<!DOCTYPE html>
                     <span class="text-muted" style="font-size: 0.72rem; letter-spacing: 0.5px;">{{ cfg['subtitulo'] or 'GESTÃO DE MANUTENÇÃO' }}</span>
                 </div>
             </a>
+
             <div class="d-flex align-items-center gap-2">
+                <!-- Informações e Foto do Usuário Logado -->
+                {% if usuario_logado_info %}
+                <div class="user-top-badge d-none d-md-inline-flex">
+                    {% if usuario_logado_info['foto_base64'] %}
+                        <img src="{{ usuario_logado_info['foto_base64'] }}" class="avatar-3x4-top">
+                    {% else %}
+                        <span class="material-symbols-rounded text-secondary fs-4 ps-1">account_circle</span>
+                    {% endif %}
+                    <span class="small fw-bold text-dark">{{ usuario_logado_info['nome'].split()[0] }}</span>
+                </div>
+                {% endif %}
+
                 <a href="/usuarios" class="m3-btn-tonal" title="Gerenciar Usuários">
                     <span class="material-symbols-rounded fs-5">manage_accounts</span>
                     <span class="d-none d-sm-inline">Usuários</span>
@@ -873,10 +923,10 @@ CONFIGURACOES_BODY = """
 </div>
 """
 
-# ================= TELA DE GERENCIAMENTO DE USUÁRIOS =================
+# ================= TELA DE GERENCIAMENTO DE USUÁRIOS COM FOTO 3X4 =================
 USUARIOS_BODY = """
 <div class="row justify-content-center">
-    <div class="col-12 col-md-9 col-lg-8">
+    <div class="col-12 col-lg-10">
         <!-- FORMULÁRIO DE NOVO USUÁRIO -->
         <div class="m3-card p-4 p-md-5 mb-4">
             <div class="d-flex align-items-center gap-3 mb-4">
@@ -885,7 +935,7 @@ USUARIOS_BODY = """
                 </div>
                 <div>
                     <h4 class="fw-bold mb-0">Cadastrar Administrador</h4>
-                    <span class="text-muted small">Adicione um novo usuário para gerenciar o aplicativo</span>
+                    <span class="text-muted small">Adicione um novo usuário com foto 3x4 de identificação</span>
                 </div>
             </div>
 
@@ -902,27 +952,43 @@ USUARIOS_BODY = """
                 </div>
             {% endif %}
 
-            <form method="POST">
-                <div class="row g-3 mb-3">
-                    <div class="col-12 col-md-6">
-                        <label class="form-label small fw-bold text-uppercase text-secondary">Nome Completo:</label>
-                        <input type="text" name="nome" class="form-control m3-input" placeholder="Ex: Carlos Silva" required>
+            <form method="POST" enctype="multipart/form-data">
+                <div class="row g-4 align-items-center mb-3">
+                    <!-- ÁREA DE UPLOAD E PRÉVIA DA FOTO 3X4 -->
+                    <div class="col-12 col-md-4 text-center">
+                        <label class="form-label small fw-bold text-uppercase text-secondary d-block">Foto 3x4:</label>
+                        <div style="width: 105px; height: 140px; border: 2px dashed #c3c7d0; border-radius: 14px; margin: 0 auto; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #f2f3f9; position: relative;">
+                            <img id="preview3x4" src="" style="width: 100%; height: 100%; object-fit: cover; display: none;">
+                            <div id="placeholder3x4" class="text-secondary text-center">
+                                <span class="material-symbols-rounded fs-1 d-block mb-1">add_a_photo</span>
+                                <span style="font-size: 0.65rem; font-weight: 700; text-transform: uppercase;">3 x 4</span>
+                            </div>
+                        </div>
+                        <input type="file" name="foto" id="inputFoto" class="form-control m3-input mt-2" accept="image/png, image/jpeg, image/webp" onchange="previewFoto(event)">
+                        <small class="text-muted d-block mt-1" style="font-size: 0.72rem;">Selecione a foto vertical 3x4</small>
                     </div>
-                    <div class="col-12 col-md-6">
-                        <label class="form-label small fw-bold text-uppercase text-secondary">Login de Acesso (Usuário):</label>
-                        <input type="text" name="usuario" class="form-control m3-input" placeholder="Ex: carlossilva" required>
+
+                    <!-- CAMPOS DE TEXTO DO USUÁRIO -->
+                    <div class="col-12 col-md-8">
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold text-uppercase text-secondary">Nome Completo:</label>
+                            <input type="text" name="nome" class="form-control m3-input" placeholder="Ex: Robson Cadete" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold text-uppercase text-secondary">Login de Acesso:</label>
+                            <input type="text" name="usuario" class="form-control m3-input" placeholder="Ex: robson.cadete" required>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label small fw-bold text-uppercase text-secondary">Senha de Acesso:</label>
+                            <input type="password" name="senha" class="form-control m3-input" placeholder="Digite uma senha segura" required>
+                        </div>
                     </div>
                 </div>
 
-                <div class="mb-4">
-                    <label class="form-label small fw-bold text-uppercase text-secondary">Senha de Acesso:</label>
-                    <input type="password" name="senha" class="form-control m3-input" placeholder="Digite uma senha segura" required>
-                </div>
-
-                <div class="d-flex justify-content-between align-items-center pt-2">
+                <div class="d-flex justify-content-between align-items-center pt-3 border-top">
                     <a href="/" class="m3-btn-tonal">Voltar</a>
                     <button type="submit" class="m3-btn-filled">
-                        <span class="material-symbols-rounded">how_to_reg</span> Salvar Administrador
+                        <span class="material-symbols-rounded">how_to_reg</span> Gravar Administrador
                     </button>
                 </div>
             </form>
@@ -931,13 +997,14 @@ USUARIOS_BODY = """
         <!-- LISTA DE USUÁRIOS ATIVOS -->
         <div class="m3-card overflow-hidden">
             <div class="p-3 bg-light border-bottom">
-                <h6 class="fw-bold mb-0 text-dark"><span class="material-symbols-rounded fs-5 align-middle">group</span> Administradores Cadastrados</h6>
+                <h6 class="fw-bold mb-0 text-dark"><span class="material-symbols-rounded fs-5 align-middle">group</span> Administradores Ativos</h6>
             </div>
             <div class="table-responsive">
                 <table class="table table-hover align-middle mb-0">
                     <thead style="background: var(--md-sys-color-surface-container-low);">
                         <tr class="small text-uppercase fw-bold text-secondary">
-                            <th class="ps-4 py-3">Nome</th>
+                            <th class="ps-4 py-3" style="width: 70px;">Foto</th>
+                            <th>Nome</th>
                             <th>Login</th>
                             <th>Nível</th>
                             <th class="text-end pe-4">Ação</th>
@@ -946,7 +1013,16 @@ USUARIOS_BODY = """
                     <tbody>
                         {% for u in lista_usuarios %}
                         <tr>
-                            <td class="ps-4 fw-bold text-dark">{{ u['nome'] }}</td>
+                            <td class="ps-4 py-2">
+                                {% if u['foto_base64'] %}
+                                    <img src="{{ u['foto_base64'] }}" style="width: 36px; height: 48px; object-fit: cover; border-radius: 6px; border: 1px solid #cbd5e1; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                                {% else %}
+                                    <div style="width: 36px; height: 48px; background: #e2e8f0; border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+                                        <span class="material-symbols-rounded text-secondary fs-5">person</span>
+                                    </div>
+                                {% endif %}
+                            </td>
+                            <td class="fw-bold text-dark">{{ u['nome'] }}</td>
                             <td><code>{{ u['usuario'] }}</code></td>
                             <td><span class="badge bg-secondary">Administrador</span></td>
                             <td class="text-end pe-4">
@@ -955,7 +1031,7 @@ USUARIOS_BODY = """
                                         <span class="material-symbols-rounded fs-6">delete</span>
                                     </a>
                                 {% else %}
-                                    <span class="text-muted small fst-italic">Padrão / Logado</span>
+                                    <span class="text-muted small fst-italic">Padrão / Ativo</span>
                                 {% endif %}
                             </td>
                         </tr>
@@ -966,6 +1042,22 @@ USUARIOS_BODY = """
         </div>
     </div>
 </div>
+
+<script>
+function previewFoto(event) {
+    const file = event.target.files[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const img = document.getElementById('preview3x4');
+            img.src = e.target.result;
+            img.style.display = 'block';
+            document.getElementById('placeholder3x4').style.display = 'none';
+        };
+        reader.readAsDataURL(file);
+    }
+}
+</script>
 """
 
 INDEX_HTML = BASE_HTML.replace("<!-- CORPO_DA_PAGINA -->", INDEX_BODY)
@@ -1164,8 +1256,17 @@ def usuarios():
     novo_usuario = request.form["usuario"].strip().lower()
     senha = request.form["senha"].strip()
 
+    # Leitura e conversão da Foto 3x4 para Base64
+    foto_base64 = ""
+    arquivo_foto = request.files.get("foto")
+    if arquivo_foto and arquivo_foto.filename != "":
+      bytes_foto = arquivo_foto.read()
+      b64_foto = base64.b64encode(bytes_foto).decode("utf-8")
+      mimetype = arquivo_foto.content_type or "image/jpeg"
+      foto_base64 = f"data:{mimetype};base64,{b64_foto}"
+
     if not nome or not novo_usuario or not senha:
-      msg_erro = "Preencha todos os campos do novo usuário."
+      msg_erro = "Preencha todos os campos obrigatórios do novo usuário."
     else:
       with get_db() as conn:
         existe = conn.execute(
@@ -1176,10 +1277,15 @@ def usuarios():
         else:
           conn.execute(
               """
-                        INSERT INTO usuarios (usuario, senha, nome, nivel)
-                        VALUES (?, ?, ?, 'admin')
+                        INSERT INTO usuarios (usuario, senha, nome, nivel, foto_base64)
+                        VALUES (?, ?, ?, 'admin', ?)
                     """,
-              (novo_usuario, generate_password_hash(senha), nome),
+              (
+                  novo_usuario,
+                  generate_password_hash(senha),
+                  nome,
+                  foto_base64,
+              ),
           )
           conn.commit()
           msg_sucesso = (
@@ -1189,7 +1295,8 @@ def usuarios():
 
   with get_db() as conn:
     lista_usuarios = conn.execute(
-        "SELECT id, usuario, nome, nivel FROM usuarios ORDER BY id ASC"
+        "SELECT id, usuario, nome, nivel, foto_base64 FROM usuarios ORDER BY id"
+        " ASC"
     ).fetchall()
 
   return render_template_string(
