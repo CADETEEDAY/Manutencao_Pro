@@ -35,95 +35,176 @@ DISPARAR_CAMERA = None
 FOTO_CAPTURADA_PENDENTE = None
 LOCAL_IP = "127.0.0.1"
 
+# ================= CAMADA HÍBRIDA DE BANCO (POSTGRESQL / SQLITE) =================
+DATABASE_URL = os.environ.get("DATABASE_URL")
+IS_POSTGRES = False
 
-# ================= CONFIGURAÇÃO DO BANCO NO ANDROID =================
-def get_db_path():
-  if "ANDROID_PRIVATE" in os.environ:
-    base = os.environ["ANDROID_PRIVATE"]
-  elif "HOME" in os.environ:
-    base = os.environ["HOME"]
-  else:
-    base = os.path.dirname(os.path.abspath(__file__))
-  os.makedirs(base, exist_ok=True)
-  return os.path.join(base, "manutencao.db")
+if DATABASE_URL:
+  if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+  try:
+    import psycopg2
+    import psycopg2.extras
+
+    IS_POSTGRES = True
+  except ImportError:
+    IS_POSTGRES = False
 
 
-DB_PATH = get_db_path()
+class DBWrapper:
+  """Unifica a sintaxe de queries entre SQLite e PostgreSQL."""
+
+  def __init__(self, conn, is_pg=False):
+    self.conn = conn
+    self.is_pg = is_pg
+
+  def execute(self, sql, params=None):
+    cur = self.conn.cursor()
+    if self.is_pg:
+      sql_formatado = sql.replace("?", "%s")
+      cur.execute(sql_formatado, params or ())
+    else:
+      cur.execute(sql, params or ())
+    return cur
+
+  def commit(self):
+    self.conn.commit()
+
+  def close(self):
+    self.conn.close()
+
+  def __enter__(self):
+    return self
+
+  def __exit__(self, exc_type, exc_val, exc_tb):
+    if exc_type is None:
+      self.commit()
+    self.close()
 
 
 def get_db():
-  conn = sqlite3.connect(DB_PATH)
-  conn.row_factory = sqlite3.Row
-  return conn
+  if IS_POSTGRES:
+    conn = psycopg2.connect(
+        DATABASE_URL, cursor_factory=psycopg2.extras.DictCursor
+    )
+    return DBWrapper(conn, is_pg=True)
+  else:
+    app_dir = os.environ.get(
+        "ANDROID_PRIVATE", os.path.dirname(os.path.abspath(__file__))
+    )
+    db_path = os.path.join(app_dir, "manutencao.db")
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    return DBWrapper(conn, is_pg=False)
 
 
 def init_db():
-  with get_db() as conn:
-    conn.execute("""
-            CREATE TABLE IF NOT EXISTS ordens_servico (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                equipamento TEXT NOT NULL,
-                solicitante TEXT NOT NULL,
-                problema TEXT NOT NULL,
-                data_abertura TEXT NOT NULL,
-                operador TEXT,
-                data_finalizacao TEXT,
-                servico_executado TEXT,
-                pecas TEXT,
-                status TEXT NOT NULL
-            )
-        """)
-    conn.execute("""
-            CREATE TABLE IF NOT EXISTS configuracoes (
-                id INTEGER PRIMARY KEY,
-                nome_empresa TEXT,
-                subtitulo TEXT,
-                contato TEXT,
-                logo_base64 TEXT
-            )
-        """)
-    conn.execute("""
-            INSERT OR IGNORE INTO configuracoes (id, nome_empresa, subtitulo, contato, logo_base64)
-            VALUES (1, 'Manutenção Predial', 'Gestão Operacional de Serviços', '', '')
-        """)
-    conn.execute("""
-            CREATE TABLE IF NOT EXISTS usuarios (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                usuario TEXT UNIQUE NOT NULL,
-                senha TEXT NOT NULL,
-                nome TEXT NOT NULL,
-                nivel TEXT DEFAULT 'admin',
-                foto_base64 TEXT
-            )
-        """)
-
-    cursor = conn.cursor()
-    cursor.execute("PRAGMA table_info(usuarios)")
-    colunas = [col[1] for col in cursor.fetchall()]
-    if "foto_base64" not in colunas:
-      conn.execute("ALTER TABLE usuarios ADD COLUMN foto_base64 TEXT")
-
-    cursor.execute("SELECT id FROM usuarios WHERE usuario = 'admin'")
-    if not cursor.fetchone():
-      senha_hash = generate_password_hash("12345")
-      conn.execute(
-          """
-                INSERT INTO usuarios (usuario, senha, nome, nivel, foto_base64)
-                VALUES ('admin', ?, 'Administrador Principal', 'admin', '')
-            """,
-          (senha_hash,),
-      )
-    conn.commit()
+  with get_db() as db:
+    if IS_POSTGRES:
+      db.execute("""
+                CREATE TABLE IF NOT EXISTS ordens_servico (
+                    id SERIAL PRIMARY KEY,
+                    equipamento TEXT NOT NULL,
+                    solicitante TEXT NOT NULL,
+                    problema TEXT NOT NULL,
+                    data_abertura TEXT NOT NULL,
+                    operador TEXT,
+                    data_finalizacao TEXT,
+                    servico_executado TEXT,
+                    pecas TEXT,
+                    status TEXT NOT NULL
+                )
+            """)
+      db.execute("""
+                CREATE TABLE IF NOT EXISTS configuracoes (
+                    id INTEGER PRIMARY KEY,
+                    nome_empresa TEXT,
+                    subtitulo TEXT,
+                    contato TEXT,
+                    logo_base64 TEXT
+                )
+            """)
+      db.execute("""
+                INSERT INTO configuracoes (id, nome_empresa, subtitulo, contato, logo_base64)
+                VALUES (1, 'Manutenção Predial', 'Gestão Operacional de Serviços', '', '')
+                ON CONFLICT (id) DO NOTHING
+            """)
+      db.execute("""
+                CREATE TABLE IF NOT EXISTS usuarios (
+                    id SERIAL PRIMARY KEY,
+                    usuario TEXT UNIQUE NOT NULL,
+                    senha TEXT NOT NULL,
+                    nome TEXT NOT NULL,
+                    nivel TEXT DEFAULT 'admin',
+                    foto_base64 TEXT
+                )
+            """)
+      cur = db.execute("SELECT id FROM usuarios WHERE usuario = 'admin'")
+      if not cur.fetchone():
+        senha_hash = generate_password_hash("12345")
+        db.execute(
+            """
+                    INSERT INTO usuarios (usuario, senha, nome, nivel, foto_base64)
+                    VALUES ('admin', ?, 'Administrador Principal', 'admin', '')
+                """,
+            (senha_hash,),
+        )
+    else:
+      db.execute("""
+                CREATE TABLE IF NOT EXISTS ordens_servico (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    equipamento TEXT NOT NULL,
+                    solicitante TEXT NOT NULL,
+                    problema TEXT NOT NULL,
+                    data_abertura TEXT NOT NULL,
+                    operador TEXT,
+                    data_finalizacao TEXT,
+                    servico_executado TEXT,
+                    pecas TEXT,
+                    status TEXT NOT NULL
+                )
+            """)
+      db.execute("""
+                CREATE TABLE IF NOT EXISTS configuracoes (
+                    id INTEGER PRIMARY KEY,
+                    nome_empresa TEXT,
+                    subtitulo TEXT,
+                    contato TEXT,
+                    logo_base64 TEXT
+                )
+            """)
+      db.execute("""
+                INSERT OR IGNORE INTO configuracoes (id, nome_empresa, subtitulo, contato, logo_base64)
+                VALUES (1, 'Manutenção Predial', 'Gestão Operacional de Serviços', '', '')
+            """)
+      db.execute("""
+                CREATE TABLE IF NOT EXISTS usuarios (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    usuario TEXT UNIQUE NOT NULL,
+                    senha TEXT NOT NULL,
+                    nome TEXT NOT NULL,
+                    nivel TEXT DEFAULT 'admin',
+                    foto_base64 TEXT
+                )
+            """)
+      cur = db.execute("SELECT id FROM usuarios WHERE usuario = 'admin'")
+      if not cur.fetchone():
+        senha_hash = generate_password_hash("12345")
+        db.execute(
+            """
+                    INSERT INTO usuarios (usuario, senha, nome, nivel, foto_base64)
+                    VALUES ('admin', ?, 'Administrador Principal', 'admin', '')
+                """,
+            (senha_hash,),
+        )
 
 
 init_db()
 
 
 def obter_configuracoes():
-  with get_db() as conn:
-    cfg = conn.execute(
-        "SELECT * FROM configuracoes WHERE id = 1"
-    ).fetchone()
+  with get_db() as db:
+    cfg = db.execute("SELECT * FROM configuracoes WHERE id = 1").fetchone()
   return cfg
 
 
@@ -133,10 +214,11 @@ def injetar_usuario_logado():
       "usuario_logado_info": None,
       "local_ip": LOCAL_IP,
       "porta": 5000,
+      "modo_nuvem": IS_POSTGRES,
   }
   if "usuario" in session:
-    with get_db() as conn:
-      u = conn.execute(
+    with get_db() as db:
+      u = db.execute(
           "SELECT * FROM usuarios WHERE usuario = ?", (session["usuario"],)
       ).fetchone()
       info["usuario_logado_info"] = u
@@ -150,6 +232,7 @@ def checar_autenticacao():
       "login",
       "static",
       "recibo",
+      "ping",
       "api_imprimir",
       "api_abrir_galeria",
       "api_abrir_camera",
@@ -162,12 +245,18 @@ def checar_autenticacao():
     return redirect(url_for("login"))
 
 
+@app.route("/ping")
+def ping():
+  """Endpoint leve para serviços de Uptime evitarem a hibernação da nuvem."""
+  return "pong", 200
+
+
 @app.errorhandler(Exception)
 def tratar_erro(e):
   erro_detalhado = traceback.format_exc()
   return (
       f"<div style='padding:16px; font-family:sans-serif; color:#991b1b;'>"
-      f"<h3>Ocorreu um erro no aplicativo:</h3>"
+      f"<h3>Ocorreu um erro no servidor:</h3>"
       f"<pre"
       f" style='background:#fee2e2;border:1px solid"
       f" #ef4444;padding:12px;border-radius:8px;font-size:11px;overflow-x:auto;'>{erro_detalhado}</pre>"
@@ -178,22 +267,22 @@ def tratar_erro(e):
   )
 
 
-# ================= API DE SINCRONIZAÇÃO EM TEMPO REAL =================
+# ================= SYNC EM TEMPO REAL =================
 @app.route("/api/status-sync")
 def api_status_sync():
-  with get_db() as conn:
-    total = conn.execute(
-        "SELECT COUNT(*), MAX(id) FROM ordens_servico"
+  with get_db() as db:
+    total = db.execute(
+        "SELECT COUNT(*), COALESCE(MAX(id), 0) FROM ordens_servico"
     ).fetchone()
-    concluidas = conn.execute(
+    concluidas = db.execute(
         "SELECT COUNT(*) FROM ordens_servico WHERE status = 'CONCLUÍDA'"
     ).fetchone()[0]
   return jsonify(
-      {"total": total[0], "ultimo_id": total[1] or 0, "concluidas": concluidas}
+      {"total": total[0], "ultimo_id": total[1], "concluidas": concluidas}
   )
 
 
-# ================= SELETORES NATIVOS =================
+# ================= SELETORES NATIVOS DE FOTO =================
 @app.route("/api/abrir-galeria-android")
 def api_abrir_galeria():
   global FOTO_CAPTURADA_PENDENTE
@@ -224,7 +313,7 @@ def api_checar_foto():
   return jsonify({"pronto": False})
 
 
-# ================= IMPRESSÃO E WHATSAPP =================
+# ================= IMPRESSÃO NATIVA E WHATSAPP =================
 @app.route("/api/imprimir/<int:os_id>")
 def api_imprimir(os_id):
   global GLOBAL_WEBVIEW, GLOBAL_ACTIVITY
@@ -260,8 +349,8 @@ def api_imprimir(os_id):
 @app.route("/compartilhar-whatsapp/<int:os_id>")
 def compartilhar_whatsapp(os_id):
   cfg = obter_configuracoes()
-  with get_db() as conn:
-    os_item = conn.execute(
+  with get_db() as db:
+    os_item = db.execute(
         "SELECT * FROM ordens_servico WHERE id = ?", (os_id,)
     ).fetchone()
 
@@ -329,7 +418,7 @@ def abrir_navegador():
   return redirect(rota)
 
 
-# ================= TEMPLATES =================
+# ================= TEMPLATES VISUAIS =================
 LOGIN_HTML = """<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -360,7 +449,7 @@ LOGIN_HTML = """<!DOCTYPE html>
                 </div>
             {% endif %}
             <h4 class="fw-bold mb-1 text-dark">{{ cfg['nome_empresa'] }}</h4>
-            <span class="text-muted small">Controle de Acesso & Manutenção</span>
+            <span class="text-muted small">Controle de Manutenção em Nuvem</span>
         </div>
         {% if erro %}
             <div class="alert alert-danger py-2 px-3 small rounded-3 mb-3 border-0 d-flex align-items-center gap-2">
@@ -489,17 +578,23 @@ BASE_HTML = """<!DOCTYPE html>
         </div>
     </header>
 
-    <!-- BARRA DE CONEXÃO ONLINE / REDE LOCAL -->
+    <!-- STATUS DE CONEXÃO: NUVEM OU REDE LOCAL -->
     <div class="container mb-3">
         <div class="p-2 px-3 bg-white border rounded-pill d-flex align-items-center justify-content-between flex-wrap gap-2 shadow-sm" style="font-size: 0.8rem;">
             <div class="d-flex align-items-center gap-2">
-                <span class="badge bg-success rounded-pill d-inline-flex align-items-center gap-1">
-                    <span class="material-symbols-rounded fs-6">wifi</span> ONLINE NA REDE
-                </span>
-                <span class="text-secondary fw-semibold">Acesse de qualquer celular ou PC:</span>
-                <code class="fw-bold text-primary">http://{{ local_ip }}:{{ porta }}</code>
+                {% if modo_nuvem %}
+                    <span class="badge bg-success rounded-pill d-inline-flex align-items-center gap-1">
+                        <span class="material-symbols-rounded fs-6">cloud_done</span> NUVEM ATIVA
+                    </span>
+                    <span class="text-secondary fw-semibold">Banco de Dados PostgreSQL Online Conectado</span>
+                {% else %}
+                    <span class="badge bg-primary rounded-pill d-inline-flex align-items-center gap-1">
+                        <span class="material-symbols-rounded fs-6">wifi</span> MODO LOCAL
+                    </span>
+                    <span class="text-secondary fw-semibold">IP da Rede: <code>http://{{ local_ip }}:{{ porta }}</code></span>
+                {% endif %}
             </div>
-            <span class="text-muted small d-none d-lg-inline">Sincronização em tempo real ativa</span>
+            <span class="text-muted small d-none d-lg-inline">Sincronização em tempo real habilitada</span>
         </div>
     </div>
 
@@ -513,7 +608,6 @@ BASE_HTML = """<!DOCTYPE html>
 </body>
 </html>"""
 
-# ================= DASHBOARD COM ATUALIZAÇÃO AUTOMÁTICA =================
 INDEX_BODY = """
 <div class="row g-3 mb-4">
     <div class="col-6 col-lg-3">
@@ -665,13 +759,11 @@ function filtrarOrdens() {
     });
 }
 
-// SINCRONIZAÇÃO EM TEMPO REAL: Verifica a cada 10 segundos se houve mudanças na rede
 setInterval(function() {
     fetch('/api/status-sync')
         .then(r => r.json())
         .then(data => {
             if (data.total !== totalAtual || data.concluidas !== concluidasAtual) {
-                // Atualiza a página suavemente para exibir os novos trabalhos
                 window.location.reload();
             }
         }).catch(e => {});
@@ -679,14 +771,13 @@ setInterval(function() {
 </script>
 """
 
-# ================= NOVA / FINALIZAR OS =================
 NOVA_BODY = """
 <div class="row justify-content-center">
     <div class="col-12 col-md-8 col-lg-7">
         <div class="m3-card p-4 p-md-5">
             <div class="d-flex align-items-center gap-3 mb-4">
                 <div class="m3-icon-badge" style="background: var(--md-sys-color-primary-container);"><span class="material-symbols-rounded fs-2 text-primary">add_circle</span></div>
-                <div><h4 class="fw-bold mb-0">Nova Requisição</h4><span class="text-muted small">Disponível em tempo real para toda a equipe</span></div>
+                <div><h4 class="fw-bold mb-0">Nova Requisição</h4><span class="text-muted small">Disponível em tempo real na nuvem</span></div>
             </div>
             <form method="POST">
                 <div class="mb-3"><label class="form-label small fw-bold text-uppercase text-secondary">Equipamento ou Local:</label><input type="text" name="equipamento" class="form-control m3-input" placeholder="Ex: Bomba D'água, Elevador 01, Gerador" required autofocus></div>
@@ -743,7 +834,6 @@ FINALIZAR_BODY = """
 </div>
 """
 
-# ================= CONFIGURAÇÕES COM SELETOR NATIVO =================
 CONFIGURACOES_BODY = """
 <div class="row justify-content-center">
     <div class="col-12 col-md-8 col-lg-7">
@@ -896,7 +986,6 @@ function carregarArquivoLocal(input) {
 </script>
 """
 
-# ================= USUÁRIOS =================
 USUARIOS_BODY = """
 <div class="row justify-content-center">
     <div class="col-12 col-lg-10">
@@ -1086,7 +1175,6 @@ function carregarArquivoLocal(input) {
 </script>
 """
 
-# ================= EDITAR USUÁRIO =================
 EDITAR_USUARIO_BODY = """
 <div class="row justify-content-center">
     <div class="col-12 col-md-9 col-lg-8">
@@ -1242,7 +1330,6 @@ function carregarArquivoLocal(input) {
 </script>
 """
 
-# ================= RECIBO TÉCNICO A4 =================
 RECIBO_A4_HTML = """<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -1383,8 +1470,8 @@ def login():
   if request.method == "POST":
     usuario = request.form["usuario"].strip()
     senha = request.form["senha"].strip()
-    with get_db() as conn:
-      user_row = conn.execute(
+    with get_db() as db:
+      user_row = db.execute(
           "SELECT * FROM usuarios WHERE usuario = ?", (usuario,)
       ).fetchone()
     if user_row and check_password_hash(user_row["senha"], senha):
@@ -1420,14 +1507,14 @@ def usuarios():
     if not nome or not novo_usuario or not senha:
       msg_erro = "Preencha todos os campos obrigatórios."
     else:
-      with get_db() as conn:
-        existe = conn.execute(
+      with get_db() as db:
+        existe = db.execute(
             "SELECT id FROM usuarios WHERE usuario = ?", (novo_usuario,)
         ).fetchone()
         if existe:
           msg_erro = f"O usuário '{novo_usuario}' já existe no sistema."
         else:
-          conn.execute(
+          db.execute(
               """
                         INSERT INTO usuarios (usuario, senha, nome, nivel, foto_base64)
                         VALUES (?, ?, ?, 'admin', ?)
@@ -1439,11 +1526,10 @@ def usuarios():
                   foto_base64,
               ),
           )
-          conn.commit()
           msg_sucesso = f"Usuário '{nome}' cadastrado com sucesso!"
 
-  with get_db() as conn:
-    lista_usuarios = conn.execute(
+  with get_db() as db:
+    lista_usuarios = db.execute(
         "SELECT id, usuario, nome, nivel, foto_base64 FROM usuarios ORDER BY id"
         " ASC"
     ).fetchall()
@@ -1461,8 +1547,8 @@ def usuarios():
 @app.route("/editar-usuario/<int:user_id>", methods=["GET", "POST"])
 def editar_usuario(user_id):
   cfg = obter_configuracoes()
-  with get_db() as conn:
-    usuario_alvo = conn.execute(
+  with get_db() as db:
+    usuario_alvo = db.execute(
         "SELECT * FROM usuarios WHERE id = ?", (user_id,)
     ).fetchone()
 
@@ -1485,8 +1571,8 @@ def editar_usuario(user_id):
     if not nome or not login_usuario:
       msg_erro = "Nome e Login são obrigatórios."
     else:
-      with get_db() as conn:
-        existe = conn.execute(
+      with get_db() as db:
+        existe = db.execute(
             "SELECT id FROM usuarios WHERE usuario = ? AND id != ?",
             (login_usuario, user_id),
         ).fetchone()
@@ -1495,7 +1581,7 @@ def editar_usuario(user_id):
         else:
           if nova_senha:
             senha_hash = generate_password_hash(nova_senha)
-            conn.execute(
+            db.execute(
                 """
                             UPDATE usuarios 
                             SET nome = ?, usuario = ?, senha = ?, foto_base64 = ?
@@ -1504,7 +1590,7 @@ def editar_usuario(user_id):
                 (nome, login_usuario, senha_hash, foto_base64, user_id),
             )
           else:
-            conn.execute(
+            db.execute(
                 """
                             UPDATE usuarios 
                             SET nome = ?, usuario = ?, foto_base64 = ?
@@ -1512,7 +1598,6 @@ def editar_usuario(user_id):
                         """,
                 (nome, login_usuario, foto_base64, user_id),
             )
-          conn.commit()
 
           if session.get("usuario") == usuario_alvo["usuario"]:
             session["usuario"] = login_usuario
@@ -1527,13 +1612,12 @@ def editar_usuario(user_id):
 
 @app.route("/excluir-usuario/<int:user_id>")
 def excluir_usuario(user_id):
-  with get_db() as conn:
-    user = conn.execute(
+  with get_db() as db:
+    user = db.execute(
         "SELECT usuario FROM usuarios WHERE id = ?", (user_id,)
     ).fetchone()
     if user and user["usuario"] != "admin" and user["usuario"] != session.get("usuario"):
-      conn.execute("DELETE FROM usuarios WHERE id = ?", (user_id,))
-      conn.commit()
+      db.execute("DELETE FROM usuarios WHERE id = ?", (user_id,))
   return redirect(url_for("usuarios"))
 
 
@@ -1541,8 +1625,8 @@ def excluir_usuario(user_id):
 @app.route("/")
 def index():
   cfg = obter_configuracoes()
-  with get_db() as conn:
-    ordens = conn.execute(
+  with get_db() as db:
+    ordens = db.execute(
         "SELECT * FROM ordens_servico ORDER BY id DESC"
     ).fetchall()
     total_os = len(ordens)
@@ -1558,17 +1642,15 @@ def index():
   )
 
 
-# AÇÃO RÁPIDA: Operador logado assume a OS na hora
 @app.route("/assumir-os/<int:os_id>")
 def assumir_os(os_id):
   nome_operador = session.get("nome", "Técnico")
-  with get_db() as conn:
-    conn.execute(
+  with get_db() as db:
+    db.execute(
         "UPDATE ordens_servico SET operador = ? WHERE id = ? AND status ="
         " 'ABERTA'",
         (nome_operador, os_id),
     )
-    conn.commit()
   return redirect(url_for("index"))
 
 
@@ -1589,8 +1671,8 @@ def configuracoes():
     elif logo_url:
       logo_base64 = logo_url
 
-    with get_db() as conn:
-      conn.execute(
+    with get_db() as db:
+      db.execute(
           """
                 UPDATE configuracoes 
                 SET nome_empresa = ?, subtitulo = ?, contato = ?, logo_base64 = ?
@@ -1598,7 +1680,6 @@ def configuracoes():
             """,
           (nome_empresa, subtitulo, contato, logo_base64),
       )
-      conn.commit()
     return redirect(url_for("index"))
   return render_template_string(CONFIGURACOES_HTML, cfg=cfg)
 
@@ -1611,8 +1692,8 @@ def nova_os():
     solicitante = request.form["solicitante"].strip()
     problema = request.form["problema"].strip()
     agora = datetime.now().strftime("%d/%m/%Y %H:%M")
-    with get_db() as conn:
-      conn.execute(
+    with get_db() as db:
+      db.execute(
           """
                 INSERT INTO ordens_servico 
                 (equipamento, solicitante, problema, data_abertura, status)
@@ -1620,7 +1701,6 @@ def nova_os():
             """,
           (equipamento, solicitante, problema, agora),
       )
-      conn.commit()
     return redirect(url_for("index"))
   return render_template_string(NOVA_OS_HTML, cfg=cfg)
 
@@ -1628,8 +1708,8 @@ def nova_os():
 @app.route("/finalizar/<int:os_id>", methods=["GET", "POST"])
 def finalizar(os_id):
   cfg = obter_configuracoes()
-  with get_db() as conn:
-    os_item = conn.execute(
+  with get_db() as db:
+    os_item = db.execute(
         "SELECT * FROM ordens_servico WHERE id = ?", (os_id,)
     ).fetchone()
   if not os_item:
@@ -1641,8 +1721,8 @@ def finalizar(os_id):
     servico_executado = request.form["servico_executado"].strip()
     pecas = request.form.get("pecas", "").strip()
 
-    with get_db() as conn:
-      conn.execute(
+    with get_db() as db:
+      db.execute(
           """
                 UPDATE ordens_servico 
                 SET operador = ?, data_finalizacao = ?, servico_executado = ?,
@@ -1651,7 +1731,6 @@ def finalizar(os_id):
             """,
           (operador, data_finalizacao, servico_executado, pecas, os_id),
       )
-      conn.commit()
     return redirect(url_for("recibo", os_id=os_id))
 
   agora = datetime.now().strftime("%d/%m/%Y %H:%M")
@@ -1662,17 +1741,16 @@ def finalizar(os_id):
 
 @app.route("/excluir/<int:os_id>")
 def excluir(os_id):
-  with get_db() as conn:
-    conn.execute("DELETE FROM ordens_servico WHERE id = ?", (os_id,))
-    conn.commit()
+  with get_db() as db:
+    db.execute("DELETE FROM ordens_servico WHERE id = ?", (os_id,))
   return redirect(url_for("index"))
 
 
 @app.route("/recibo/<int:os_id>")
 def recibo(os_id):
   cfg = obter_configuracoes()
-  with get_db() as conn:
-    os_item = conn.execute(
+  with get_db() as db:
+    os_item = db.execute(
         "SELECT * FROM ordens_servico WHERE id = ?", (os_id,)
     ).fetchone()
   if not os_item:
