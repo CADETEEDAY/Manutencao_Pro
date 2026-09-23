@@ -52,7 +52,7 @@ if DATABASE_URL:
 
 
 class DBWrapper:
-  """Unifica a sintaxe de queries entre SQLite e PostgreSQL."""
+  """Compatibiliza a sintaxe de parâmetros SQL entre PostgreSQL (%s) e SQLite (?)."""
 
   def __init__(self, conn, is_pg=False):
     self.conn = conn
@@ -225,7 +225,7 @@ def injetar_usuario_logado():
   return info
 
 
-# ================= PROTEÇÃO DE ROTAS =================
+# ================= CONTROLE DE SESSÃO & PROTEÇÃO =================
 @app.before_request
 def checar_autenticacao():
   rotas_livres = [
@@ -247,7 +247,7 @@ def checar_autenticacao():
 
 @app.route("/ping")
 def ping():
-  """Endpoint leve para serviços de Uptime evitarem a hibernação da nuvem."""
+  """Endpoint leve para serviços de monitoramento manterem a nuvem ativa."""
   return "pong", 200
 
 
@@ -267,7 +267,7 @@ def tratar_erro(e):
   )
 
 
-# ================= SYNC EM TEMPO REAL =================
+# ================= SINCRONIZAÇÃO EM REDE E SELETORES =================
 @app.route("/api/status-sync")
 def api_status_sync():
   with get_db() as db:
@@ -282,7 +282,6 @@ def api_status_sync():
   )
 
 
-# ================= SELETORES NATIVOS DE FOTO =================
 @app.route("/api/abrir-galeria-android")
 def api_abrir_galeria():
   global FOTO_CAPTURADA_PENDENTE
@@ -418,7 +417,7 @@ def abrir_navegador():
   return redirect(rota)
 
 
-# ================= TEMPLATES VISUAIS =================
+# ================= TEMPLATES (MATERIAL 3) =================
 LOGIN_HTML = """<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -578,7 +577,7 @@ BASE_HTML = """<!DOCTYPE html>
         </div>
     </header>
 
-    <!-- STATUS DE CONEXÃO: NUVEM OU REDE LOCAL -->
+    <!-- STATUS DE CONEXÃO -->
     <div class="container mb-3">
         <div class="p-2 px-3 bg-white border rounded-pill d-flex align-items-center justify-content-between flex-wrap gap-2 shadow-sm" style="font-size: 0.8rem;">
             <div class="d-flex align-items-center gap-2">
