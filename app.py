@@ -112,9 +112,15 @@ def init_db():
                     data_finalizacao TEXT,
                     servico_executado TEXT,
                     pecas TEXT,
-                    status TEXT NOT NULL
+                    status TEXT NOT NULL,
+                    foto_problema TEXT
                 )
             """)
+      # Migração automática de coluna caso tabela já existisse
+      db.execute("""
+                ALTER TABLE ordens_servico ADD COLUMN IF NOT EXISTS foto_problema TEXT;
+            """)
+
       db.execute("""
                 CREATE TABLE IF NOT EXISTS configuracoes (
                     id INTEGER PRIMARY KEY,
@@ -161,9 +167,17 @@ def init_db():
                     data_finalizacao TEXT,
                     servico_executado TEXT,
                     pecas TEXT,
-                    status TEXT NOT NULL
+                    status TEXT NOT NULL,
+                    foto_problema TEXT
                 )
             """)
+
+      # Migração no SQLite local
+      cur = db.execute("PRAGMA table_info(ordens_servico)")
+      cols = [c[1] for c in cur.fetchall()]
+      if "foto_problema" not in cols:
+        db.execute("ALTER TABLE ordens_servico ADD COLUMN foto_problema TEXT")
+
       db.execute("""
                 CREATE TABLE IF NOT EXISTS configuracoes (
                     id INTEGER PRIMARY KEY,
@@ -187,6 +201,12 @@ def init_db():
                     foto_base64 TEXT
                 )
             """)
+
+      cur = db.execute("PRAGMA table_info(usuarios)")
+      cols_u = [c[1] for c in cur.fetchall()]
+      if "foto_base64" not in cols_u:
+        db.execute("ALTER TABLE usuarios ADD COLUMN foto_base64 TEXT")
+
       cur = db.execute("SELECT id FROM usuarios WHERE usuario = 'admin'")
       if not cur.fetchone():
         senha_hash = generate_password_hash("12345")
@@ -247,7 +267,6 @@ def checar_autenticacao():
 
 @app.route("/ping")
 def ping():
-  """Endpoint leve para serviços de monitoramento manterem a nuvem ativa."""
   return "pong", 200
 
 
@@ -562,6 +581,12 @@ BASE_HTML = """<!DOCTYPE html>
                     <span class="small fw-bold text-dark pe-2">{{ usuario_logado_info['nome'].split()[0] }}</span>
                 </div>
                 {% endif %}
+
+                <!-- BOTÃO DE ATIVAR/MUTAR SOM DE NOTIFICAÇÃO -->
+                <button type="button" id="btnSomNotif" onclick="alternarSom()" class="m3-btn-tonal py-1 px-3" title="Ativar/Desativar som de novas requisições">
+                    <span class="material-symbols-rounded fs-5" id="iconeSom">notifications_active</span>
+                </button>
+
                 <a href="/usuarios" class="m3-btn-tonal" title="Gerenciar Usuários">
                     <span class="material-symbols-rounded fs-5">manage_accounts</span>
                     <span class="d-none d-sm-inline">Usuários</span>
@@ -593,7 +618,18 @@ BASE_HTML = """<!DOCTYPE html>
                     <span class="text-secondary fw-semibold">IP da Rede: <code>http://{{ local_ip }}:{{ porta }}</code></span>
                 {% endif %}
             </div>
-            <span class="text-muted small d-none d-lg-inline">Sincronização em tempo real habilitada</span>
+            <span class="text-muted small d-none d-lg-inline">🔔 Alertas sonoros ativos para novas OS</span>
+        </div>
+    </div>
+
+    <!-- BANNER DE ALERTA QUANDO CHEGA NOVA OS -->
+    <div id="bannerNovaOS" class="container mb-3" style="display: none;">
+        <div class="alert alert-warning border-warning shadow-sm py-2 px-3 rounded-4 d-flex align-items-center justify-content-between">
+            <div class="d-flex align-items-center gap-2">
+                <span class="material-symbols-rounded fs-4 text-warning">notification_important</span>
+                <strong>Atenção:</strong> Uma nova requisição de manutenção acabou de chegar!
+            </div>
+            <button onclick="window.location.reload()" class="btn btn-sm btn-warning fw-bold rounded-pill px-3">Atualizar Agora</button>
         </div>
     </div>
 
@@ -604,6 +640,63 @@ BASE_HTML = """<!DOCTYPE html>
         <span class="material-symbols-rounded">add</span>
         <span>Nova Requisição</span>
     </a>
+
+    <script>
+    let somHabilitado = localStorage.getItem('manutencao_som') !== 'desativado';
+
+    function atualizarIconeSom() {
+        const icon = document.getElementById('iconeSom');
+        if (icon) {
+            icon.innerText = somHabilitado ? 'notifications_active' : 'notifications_off';
+        }
+    }
+    atualizarIconeSom();
+
+    function alternarSom() {
+        somHabilitado = !somHabilitado;
+        localStorage.setItem('manutencao_som', somHabilitado ? 'ativado' : 'desativado');
+        atualizarIconeSom();
+        if (somHabilitado) {
+            tocarSomNotificacao();
+        }
+    }
+
+    // Gerador de Som Web Audio API (Sino / Chime duplo)
+    function tocarSomNotificacao() {
+        if (!somHabilitado) return;
+        try {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            const ctx = new AudioCtx();
+            const now = ctx.currentTime;
+
+            // Tom 1 (C5)
+            const osc1 = ctx.createOscillator();
+            const gain1 = ctx.createGain();
+            osc1.type = 'sine';
+            osc1.frequency.setValueAtTime(523.25, now);
+            gain1.gain.setValueAtTime(0.3, now);
+            gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+            osc1.connect(gain1);
+            gain1.connect(ctx.destination);
+            osc1.start(now);
+            osc1.stop(now + 0.35);
+
+            // Tom 2 (G5)
+            const osc2 = ctx.createOscillator();
+            const gain2 = ctx.createGain();
+            osc2.type = 'sine';
+            osc2.frequency.setValueAtTime(783.99, now + 0.18);
+            gain2.gain.setValueAtTime(0.4, now + 0.18);
+            gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
+            osc2.connect(gain2);
+            gain2.connect(ctx.destination);
+            osc2.start(now + 0.18);
+            osc2.stop(now + 0.7);
+        } catch (e) {
+            console.log('Erro ao tocar áudio:', e);
+        }
+    }
+    </script>
 </body>
 </html>"""
 
@@ -671,6 +764,7 @@ INDEX_BODY = """
             <thead style="background: var(--md-sys-color-surface-container-low);">
                 <tr class="small text-uppercase fw-bold text-secondary">
                     <th class="ps-4 py-3">Código</th>
+                    <th style="width: 60px;">Foto</th>
                     <th>Equipamento / Local</th>
                     <th>Solicitante</th>
                     <th>Operador Técnico</th>
@@ -683,6 +777,15 @@ INDEX_BODY = """
                 {% for os in ordens %}
                 <tr class="linha-os" data-status="{{ os['status']|lower }}">
                     <td class="ps-4 fw-bold text-primary">#{{ "%05d" % os['id'] }}</td>
+                    <td>
+                        {% if os['foto_problema'] %}
+                            <img src="{{ os['foto_problema'] }}" style="width: 44px; height: 44px; object-fit: cover; border-radius: 8px; border: 1px solid #cbd5e1; cursor: pointer;" onclick="window.open('{{ os['foto_problema'] }}', '_blank')" title="Clique para ampliar a foto do problema">
+                        {% else %}
+                            <div style="width: 44px; height: 44px; background: #f1f5f9; border-radius: 8px; display: flex; align-items: center; justify-content: center;" title="Sem foto da ocorrência">
+                                <span class="material-symbols-rounded text-muted fs-5">image_not_supported</span>
+                            </div>
+                        {% endif %}
+                    </td>
                     <td class="fw-bold">{{ os['equipamento'] }}</td>
                     <td>{{ os['solicitante'] }}</td>
                     <td>
@@ -721,7 +824,7 @@ INDEX_BODY = """
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="7" class="text-center py-5 text-muted">
+                    <td colspan="8" class="text-center py-5 text-muted">
                         <span class="material-symbols-rounded fs-1 d-block mb-2 text-secondary">inbox</span>
                         Nenhuma ordem de serviço cadastrada no momento.
                     </td>
@@ -758,30 +861,83 @@ function filtrarOrdens() {
     });
 }
 
+// SINCRONIZAÇÃO EM TEMPO REAL COM SOM DE NOTIFICAÇÃO
 setInterval(function() {
     fetch('/api/status-sync')
         .then(r => r.json())
         .then(data => {
-            if (data.total !== totalAtual || data.concluidas !== concluidasAtual) {
+            if (data.total > totalAtual) {
+                // Chegou uma requisição nova: TOCA O SOM!
+                tocarSomNotificacao();
+                const banner = document.getElementById('bannerNovaOS');
+                if (banner) banner.style.display = 'block';
+                totalAtual = data.total;
+                concluidasAtual = data.concluidas;
+                setTimeout(() => { window.location.reload(); }, 2000);
+            } else if (data.concluidas !== concluidasAtual) {
                 window.location.reload();
             }
         }).catch(e => {});
-}, 10000);
+}, 8000);
 </script>
 """
 
+# ================= NOVA REQUISIÇÃO COM FOTO DO DEFEITO =================
 NOVA_BODY = """
 <div class="row justify-content-center">
     <div class="col-12 col-md-8 col-lg-7">
         <div class="m3-card p-4 p-md-5">
             <div class="d-flex align-items-center gap-3 mb-4">
                 <div class="m3-icon-badge" style="background: var(--md-sys-color-primary-container);"><span class="material-symbols-rounded fs-2 text-primary">add_circle</span></div>
-                <div><h4 class="fw-bold mb-0">Nova Requisição</h4><span class="text-muted small">Disponível em tempo real na nuvem</span></div>
+                <div><h4 class="fw-bold mb-0">Nova Requisição</h4><span class="text-muted small">Adicione o local, descrição e foto do problema</span></div>
             </div>
-            <form method="POST">
-                <div class="mb-3"><label class="form-label small fw-bold text-uppercase text-secondary">Equipamento ou Local:</label><input type="text" name="equipamento" class="form-control m3-input" placeholder="Ex: Bomba D'água, Elevador 01, Gerador" required autofocus></div>
-                <div class="mb-3"><label class="form-label small fw-bold text-uppercase text-secondary">Solicitante:</label><input type="text" name="solicitante" class="form-control m3-input" placeholder="Ex: Portaria, Gerência ou Morador" required></div>
-                <div class="mb-4"><label class="form-label small fw-bold text-uppercase text-secondary">Descrição da Ocorrência:</label><textarea name="problema" rows="4" class="form-control m3-input" placeholder="Descreva os ruídos, defeitos ou inspeção requerida..." required></textarea></div>
+
+            <form method="POST" enctype="multipart/form-data">
+                <input type="hidden" name="foto_base64_capturada" id="foto_base64_capturada" value="">
+                <input type="file" id="inputArquivoFallback" style="display:none;" accept="image/*" onchange="carregarArquivoLocal(this)">
+
+                <div class="mb-3">
+                    <label class="form-label small fw-bold text-uppercase text-secondary">Equipamento ou Local:</label>
+                    <input type="text" name="equipamento" class="form-control m3-input" placeholder="Ex: Bomba D'água, Elevador 01, Portão da Garagem" required autofocus>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small fw-bold text-uppercase text-secondary">Solicitante:</label>
+                    <input type="text" name="solicitante" class="form-control m3-input" placeholder="Ex: Portaria, Gerência ou Apto 302" required>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small fw-bold text-uppercase text-secondary">Descrição da Ocorrência:</label>
+                    <textarea name="problema" rows="3" class="form-control m3-input" placeholder="Descreva ruídos, vazamento, falhas ou defeito visual..." required></textarea>
+                </div>
+
+                <!-- CAMPO PARA FOTO DO ONDE PRECISA SER REPARADO -->
+                <div class="mb-4 p-3 bg-light rounded-4 border">
+                    <label class="form-label small fw-bold text-uppercase text-secondary d-block">
+                        <span class="material-symbols-rounded fs-5 align-middle text-primary">add_a_photo</span>
+                        Foto do Problema / Onde precisa ser reparado:
+                    </label>
+
+                    <div class="text-center mb-3">
+                        <div style="width: 100%; max-height: 220px; min-height: 120px; border: 2px dashed #cbd5e1; border-radius: 16px; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #ffffff;">
+                            <img id="preview3x4" src="" style="width: 100%; max-height: 220px; object-fit: contain; display: none;">
+                            <div id="placeholder3x4" class="text-secondary p-3">
+                                <span class="material-symbols-rounded fs-1 text-muted d-block mb-1">image</span>
+                                <span class="small text-muted fw-bold">Nenhuma foto anexada</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <button type="button" class="m3-btn-filled flex-fill py-2" onclick="abrirCamera(this)">
+                            <span class="material-symbols-rounded fs-5">photo_camera</span> Tirar Foto do Defeito
+                        </button>
+                        <button type="button" class="m3-btn-tonal flex-fill py-2" onclick="abrirGaleria(this)">
+                            <span class="material-symbols-rounded fs-5">photo_library</span> Galeria
+                        </button>
+                    </div>
+                </div>
+
                 <div class="d-flex justify-content-between align-items-center pt-2">
                     <a href="/" class="m3-btn-tonal">Voltar</a>
                     <button type="submit" class="m3-btn-filled"><span class="material-symbols-rounded">send</span> Publicar Chamado</button>
@@ -790,8 +946,98 @@ NOVA_BODY = """
         </div>
     </div>
 </div>
+
+<script>
+var timerChecagem = null;
+
+function checarFotoCapturada() {
+    fetch('/api/checar-foto')
+        .then(r => r.json())
+        .then(res => {
+            if (res.pronto && res.foto) {
+                if (timerChecagem) clearInterval(timerChecagem);
+                aplicarFotoNaTela(res.foto);
+            }
+        }).catch(err => {});
+}
+
+function aplicarFotoNaTela(b64) {
+    var prev = document.getElementById('preview3x4');
+    var plc = document.getElementById('placeholder3x4');
+    if (prev) { prev.src = b64; prev.style.display = 'block'; }
+    if (plc) { plc.style.display = 'none'; }
+    var inputHidden = document.getElementById('foto_base64_capturada');
+    if (inputHidden) { inputHidden.value = b64; }
+}
+
+document.addEventListener("visibilitychange", function() {
+    if (document.visibilityState === "visible") {
+        checarFotoCapturada();
+        setTimeout(checarFotoCapturada, 500);
+        setTimeout(checarFotoCapturada, 1200);
+    }
+});
+window.addEventListener("focus", checarFotoCapturada);
+
+function abrirGaleria(btn) {
+    btn.disabled = true;
+    var originalText = btn.innerHTML;
+    btn.innerHTML = '⏳ Abrindo...';
+
+    fetch('/api/abrir-galeria-android')
+        .then(r => r.json())
+        .then(data => {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+            if (data.iniciado) {
+                if (timerChecagem) clearInterval(timerChecagem);
+                timerChecagem = setInterval(checarFotoCapturada, 1000);
+            } else {
+                document.getElementById('inputArquivoFallback').click();
+            }
+        }).catch(e => {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+            document.getElementById('inputArquivoFallback').click();
+        });
+}
+
+function abrirCamera(btn) {
+    btn.disabled = true;
+    var originalText = btn.innerHTML;
+    btn.innerHTML = '⏳ Abrindo...';
+
+    fetch('/api/abrir-camera-android')
+        .then(r => r.json())
+        .then(data => {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+            if (data.iniciado) {
+                if (timerChecagem) clearInterval(timerChecagem);
+                timerChecagem = setInterval(checarFotoCapturada, 1000);
+            } else {
+                document.getElementById('inputArquivoFallback').click();
+            }
+        }).catch(e => {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+            document.getElementById('inputArquivoFallback').click();
+        });
+}
+
+function carregarArquivoLocal(input) {
+    if (input.files && input.files[0]) {
+        var reader = new FileReader();
+        reader.onload = function(e) {
+            aplicarFotoNaTela(e.target.result);
+        };
+        reader.readAsDataURL(input.files[0]);
+    }
+}
+</script>
 """
 
+# ================= FINALIZAR OS =================
 FINALIZAR_BODY = """
 <div class="row justify-content-center">
     <div class="col-12 col-lg-8">
@@ -803,13 +1049,25 @@ FINALIZAR_BODY = """
                 </div>
                 <span class="m3-badge-aberta">Aberta em: {{ os['data_abertura'] }}</span>
             </div>
+
             <div class="m3-card-tonal p-3 mb-4">
-                <div class="row g-2">
+                <div class="row g-3">
                     <div class="col-12 col-md-6"><span class="text-secondary small fw-bold text-uppercase">Equipamento:</span><div class="fw-bold">{{ os['equipamento'] }}</div></div>
                     <div class="col-12 col-md-6"><span class="text-secondary small fw-bold text-uppercase">Solicitante:</span><div>{{ os['solicitante'] }}</div></div>
-                    <div class="col-12 mt-2 pt-2 border-top"><span class="text-secondary small fw-bold text-uppercase">Problema Informado:</span><div class="text-dark">{{ os['problema'] }}</div></div>
+                    <div class="col-12 mt-2 pt-2 border-top">
+                        <span class="text-secondary small fw-bold text-uppercase">Problema Informado:</span>
+                        <div class="text-dark">{{ os['problema'] }}</div>
+                    </div>
+
+                    {% if os['foto_problema'] %}
+                    <div class="col-12 mt-2 pt-2 border-top">
+                        <span class="text-secondary small fw-bold text-uppercase d-block mb-1">Foto da Ocorrência Enviada pelo Solicitante:</span>
+                        <img src="{{ os['foto_problema'] }}" style="max-height: 240px; border-radius: 12px; border: 1px solid #cbd5e1; cursor: pointer;" onclick="window.open('{{ os['foto_problema'] }}', '_blank')" title="Toque para ampliar">
+                    </div>
+                    {% endif %}
                 </div>
             </div>
+
             <form method="POST">
                 <div class="row g-3 mb-3">
                     <div class="col-12 col-md-6">
@@ -833,6 +1091,7 @@ FINALIZAR_BODY = """
 </div>
 """
 
+# ================= CONFIGURAÇÕES =================
 CONFIGURACOES_BODY = """
 <div class="row justify-content-center">
     <div class="col-12 col-md-8 col-lg-7">
@@ -985,6 +1244,7 @@ function carregarArquivoLocal(input) {
 </script>
 """
 
+# ================= USUÁRIOS =================
 USUARIOS_BODY = """
 <div class="row justify-content-center">
     <div class="col-12 col-lg-10">
@@ -1174,6 +1434,7 @@ function carregarArquivoLocal(input) {
 </script>
 """
 
+# ================= EDITAR USUÁRIO =================
 EDITAR_USUARIO_BODY = """
 <div class="row justify-content-center">
     <div class="col-12 col-md-9 col-lg-8">
@@ -1329,6 +1590,7 @@ function carregarArquivoLocal(input) {
 </script>
 """
 
+# ================= RECIBO TÉCNICO A4 =================
 RECIBO_A4_HTML = """<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -1428,7 +1690,22 @@ if (window.location.search.indexOf('print=1') !== -1) {
     </tr>
   </table>
 
-  <div class="box-section"><div class="box-title">Defeito Reclamado / Requisição:</div><div class="box-content">{{ os['problema'] }}</div></div>
+  <div class="box-section">
+    <table style="width: 100%;">
+        <tr>
+            <td style="vertical-align: top;">
+                <div class="box-title">Defeito Reclamado / Requisição:</div>
+                <div class="box-content">{{ os['problema'] }}</div>
+            </td>
+            {% if os['foto_problema'] %}
+            <td style="width: 75px; text-align: right; vertical-align: top;">
+                <img src="{{ os['foto_problema'] }}" style="width: 65px; height: 50px; object-fit: cover; border-radius: 4px; border: 1px solid #cbd5e1;">
+            </td>
+            {% endif %}
+        </tr>
+    </table>
+  </div>
+
   <div class="box-section"><div class="box-title">Serviço Técnico Realizado:</div><div class="box-content">{{ os['servico_executado'] or 'Em andamento' }}</div></div>
   <div class="box-section"><div class="box-title">Peças & Materiais Utilizados:</div><div class="box-content">{{ os['pecas'] or 'Nenhum material/peça extra cadastrado' }}</div></div>
 
@@ -1690,15 +1967,17 @@ def nova_os():
     equipamento = request.form["equipamento"].strip()
     solicitante = request.form["solicitante"].strip()
     problema = request.form["problema"].strip()
+    foto_problema = request.form.get("foto_base64_capturada", "")
     agora = datetime.now().strftime("%d/%m/%Y %H:%M")
+
     with get_db() as db:
       db.execute(
           """
                 INSERT INTO ordens_servico 
-                (equipamento, solicitante, problema, data_abertura, status)
-                VALUES (?, ?, ?, ?, 'ABERTA')
+                (equipamento, solicitante, problema, data_abertura, status, foto_problema)
+                VALUES (?, ?, ?, ?, 'ABERTA', ?)
             """,
-          (equipamento, solicitante, problema, agora),
+          (equipamento, solicitante, problema, agora, foto_problema),
       )
     return redirect(url_for("index"))
   return render_template_string(NOVA_OS_HTML, cfg=cfg)
