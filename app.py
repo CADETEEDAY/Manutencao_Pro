@@ -1,5 +1,5 @@
 import base64
-from datetime import datetime
+from datetime import datetime, timedelta
 import io
 import os
 import sqlite3
@@ -28,7 +28,14 @@ except ImportError:
 app = Flask(__name__)
 app.secret_key = "chave_mestra_manutencao_predial_segura_2026"
 
-# ================= CONEXÃO COM BANCO DE DADOS (POSTGRESQL OU SQLITE) =================
+GLOBAL_WEBVIEW = None
+GLOBAL_ACTIVITY = None
+DISPARAR_GALERIA = None
+DISPARAR_CAMERA = None
+FOTO_CAPTURADA_PENDENTE = None
+LOCAL_IP = "127.0.0.1"
+
+# ================= CAMADA HÍBRIDA DE BANCO (POSTGRESQL / SQLITE) =================
 DATABASE_URL = os.environ.get("DATABASE_URL")
 IS_POSTGRES = False
 
@@ -45,7 +52,7 @@ if DATABASE_URL:
 
 
 class DBWrapper:
-  """Compatibiliza as consultas SQL entre PostgreSQL (%s) e SQLite (?)."""
+  """Compatibiliza a sintaxe SQL entre PostgreSQL (%s) e SQLite (?)."""
 
   def __init__(self, conn, is_pg=False):
     self.conn = conn
@@ -113,6 +120,21 @@ def init_db():
           "ALTER TABLE ordens_servico ADD COLUMN IF NOT EXISTS foto_problema"
           " TEXT;"
       )
+
+      # Tabela de Manutenções Preventivas Recorrentes
+      db.execute("""
+                CREATE TABLE IF NOT EXISTS preventivas (
+                    id SERIAL PRIMARY KEY,
+                    equipamento TEXT NOT NULL,
+                    solicitante TEXT NOT NULL,
+                    descricao TEXT NOT NULL,
+                    periodicidade_dias INTEGER NOT NULL,
+                    proxima_data TEXT NOT NULL,
+                    ultima_geracao TEXT,
+                    ativo INTEGER DEFAULT 1
+                )
+            """)
+
       db.execute("""
                 CREATE TABLE IF NOT EXISTS configuracoes (
                     id INTEGER PRIMARY KEY,
@@ -168,6 +190,20 @@ def init_db():
       if "foto_problema" not in cols:
         db.execute("ALTER TABLE ordens_servico ADD COLUMN foto_problema TEXT")
 
+      # Tabela de Manutenções Preventivas Recorrentes (SQLite)
+      db.execute("""
+                CREATE TABLE IF NOT EXISTS preventivas (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    equipamento TEXT NOT NULL,
+                    solicitante TEXT NOT NULL,
+                    descricao TEXT NOT NULL,
+                    periodicidade_dias INTEGER NOT NULL,
+                    proxima_data TEXT NOT NULL,
+                    ultima_geracao TEXT,
+                    ativo INTEGER DEFAULT 1
+                )
+            """)
+
       db.execute("""
                 CREATE TABLE IF NOT EXISTS configuracoes (
                     id INTEGER PRIMARY KEY,
@@ -211,6 +247,52 @@ def init_db():
 init_db()
 
 
+# ================= MOTOR DE REVISÕES PREVENTIVAS RECORRENTES =================
+def verificar_gerar_preventivas():
+  """Verifica as rotinas preventivas que atingiram a data limite e gera as OS automaticamente."""
+  hoje_iso = datetime.now().strftime("%Y-%m-%d")
+  with get_db() as db:
+    pendentes = db.execute(
+        "SELECT * FROM preventivas WHERE ativo = 1 AND proxima_data <= ?",
+        (hoje_iso,),
+    ).fetchall()
+    for p in pendentes:
+      agora_str = datetime.now().strftime("%d/%m/%Y %H:%M")
+      desc_os = (
+          f"[REVISÃO PREVENTIVA PROGRAMADA - A CADA {p['periodicidade_dias']}"
+          f" DIAS]\n{p['descricao']}"
+      )
+      solic = f"Preventiva ({p['solicitante']})"
+
+      # Insere a nova ordem de serviço preventiva
+      db.execute(
+          """
+                INSERT INTO ordens_servico (equipamento, solicitante, problema, data_abertura, status, foto_problema)
+                VALUES (?, ?, ?, ?, 'ABERTA', '')
+            """,
+          (p["equipamento"], solic, desc_os, agora_str),
+      )
+
+      # Calcula a próxima data de revisão futura
+      try:
+        dt_base = datetime.strptime(p["proxima_data"], "%Y-%m-%d")
+      except Exception:
+        dt_base = datetime.now()
+
+      dias = int(p["periodicidade_dias"]) if p["periodicidade_dias"] > 0 else 30
+      while dt_base.strftime("%Y-%m-%d") <= hoje_iso:
+        dt_base += timedelta(days=dias)
+
+      db.execute(
+          """
+                UPDATE preventivas 
+                SET proxima_data = ?, ultima_geracao = ? 
+                WHERE id = ?
+            """,
+          (dt_base.strftime("%Y-%m-%d"), hoje_iso, p["id"]),
+      )
+
+
 def obter_configuracoes():
   with get_db() as db:
     cfg = db.execute("SELECT * FROM configuracoes WHERE id = 1").fetchone()
@@ -249,7 +331,6 @@ def checar_autenticacao():
 
 @app.route("/ping")
 def ping():
-  """Endpoint para monitoramento UptimeRobot evitar suspensão da instância."""
   return "pong", 200
 
 
@@ -269,9 +350,10 @@ def tratar_erro(e):
   )
 
 
-# ================= MONITORAMENTO EM TEMPO REAL =================
+# ================= MONITORAMENTO E REQUISIÇÕES NATIVAS =================
 @app.route("/api/status-sync")
 def api_status_sync():
+  verificar_gerar_preventivas()
   with get_db() as db:
     total = db.execute(
         "SELECT COUNT(*), COALESCE(MAX(id), 0) FROM ordens_servico"
@@ -284,7 +366,6 @@ def api_status_sync():
   )
 
 
-# ================= PARTILHA POR WHATSAPP =================
 @app.route("/compartilhar-whatsapp/<int:os_id>")
 def compartilhar_whatsapp(os_id):
   cfg = obter_configuracoes()
@@ -323,7 +404,7 @@ _Comprovante emitido via Sistema de Manutenção_"""
   return redirect(f"https://api.whatsapp.com/send?text={texto_url}")
 
 
-# ================= TEMPLATES HTML (MATERIAL 3 EXPRESSIVE) =================
+# ================= TEMPLATES (MATERIAL 3 EXPRESSIVE) =================
 LOGIN_HTML = """<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -354,7 +435,7 @@ LOGIN_HTML = """<!DOCTYPE html>
                 </div>
             {% endif %}
             <h4 class="fw-bold mb-1 text-dark">{{ cfg['nome_empresa'] }}</h4>
-            <span class="text-muted small">Controle Operacional em Nuvem</span>
+            <span class="text-muted small">Controle de Manutenção Preventiva & Corretiva</span>
         </div>
         {% if erro %}
             <div class="alert alert-danger py-2 px-3 small rounded-3 mb-3 border-0 d-flex align-items-center gap-2">
@@ -469,7 +550,12 @@ BASE_HTML = """<!DOCTYPE html>
                 </div>
                 {% endif %}
 
-                <!-- BOTÃO DE ATIVAR/SILENCIAR NOTIFICAÇÃO SONORA -->
+                <!-- ABA DE PREVENTIVAS RECORRENTES -->
+                <a href="/preventivas" class="m3-btn-tonal" title="Manutenções Preventivas Periódicas">
+                    <span class="material-symbols-rounded fs-5">event_repeat</span>
+                    <span class="d-none d-sm-inline">Preventivas</span>
+                </a>
+
                 <button type="button" id="btnSomNotif" onclick="alternarSom()" class="m3-btn-tonal py-1 px-3" title="Ativar/Desativar som de novos chamados">
                     <span class="material-symbols-rounded fs-5" id="iconeSom">notifications_active</span>
                 </button>
@@ -489,7 +575,6 @@ BASE_HTML = """<!DOCTYPE html>
         </div>
     </header>
 
-    <!-- STATUS DO BANCO DE DADOS -->
     <div class="container mb-3">
         <div class="p-2 px-3 bg-white border rounded-pill d-flex align-items-center justify-content-between flex-wrap gap-2 shadow-sm" style="font-size: 0.8rem;">
             <div class="d-flex align-items-center gap-2">
@@ -505,11 +590,10 @@ BASE_HTML = """<!DOCTYPE html>
                     <span class="text-secondary fw-semibold">Armazenamento SQLite Ativo</span>
                 {% endif %}
             </div>
-            <span class="text-muted small d-none d-lg-inline">Alertas sonoros habilitados</span>
+            <span class="text-muted small d-none d-lg-inline">Monitoramento e preventivas automáticas ativas</span>
         </div>
     </div>
 
-    <!-- AVISO VISUAL DE NOVA ORDEM -->
     <div id="bannerNovaOS" class="container mb-3" style="display: none;">
         <div class="alert alert-warning border-warning shadow-sm py-2 px-3 rounded-4 d-flex align-items-center justify-content-between">
             <div class="d-flex align-items-center gap-2">
@@ -615,10 +699,10 @@ INDEX_BODY = """
     </div>
     <div class="col-6 col-lg-3">
         <div class="m3-stat-box m3-stat-tertiary">
-            <div class="m3-icon-badge"><span class="material-symbols-rounded fs-4">trending_up</span></div>
+            <div class="m3-icon-badge"><span class="material-symbols-rounded fs-4">event_repeat</span></div>
             <div>
-                <div class="small fw-semibold text-uppercase" style="opacity: 0.85;">Conclusão</div>
-                <div class="fs-4 fw-bold">{% if total_os > 0 %}{{ "%.0f" % ((os_concluidas / total_os) * 100) }}%{% else %}0%{% endif %}</div>
+                <div class="small fw-semibold text-uppercase" style="opacity: 0.85;">Preventivas</div>
+                <div class="fs-4 fw-bold">{{ total_preventivas }}</div>
             </div>
         </div>
     </div>
@@ -663,7 +747,7 @@ INDEX_BODY = """
                     <td class="ps-4 fw-bold text-primary">#{{ "%05d" % os['id'] }}</td>
                     <td>
                         {% if os['foto_problema'] %}
-                            <img src="{{ os['foto_problema'] }}" style="width: 44px; height: 44px; object-fit: cover; border-radius: 8px; border: 1px solid #cbd5e1; cursor: pointer;" onclick="window.open('{{ os['foto_problema'] }}', '_blank')" title="Ampliar foto do defeito">
+                            <img src="{{ os['foto_problema'] }}" style="width: 44px; height: 44px; object-fit: cover; border-radius: 8px; border: 1px solid #cbd5e1; cursor: pointer;" onclick="window.open('{{ os['foto_problema'] }}', '_blank')" title="Ampliar foto">
                         {% else %}
                             <div style="width: 44px; height: 44px; background: #f1f5f9; border-radius: 8px; display: flex; align-items: center; justify-content: center;">
                                 <span class="material-symbols-rounded text-muted fs-5">image_not_supported</span>
@@ -671,7 +755,12 @@ INDEX_BODY = """
                         {% endif %}
                     </td>
                     <td class="fw-bold">{{ os['equipamento'] }}</td>
-                    <td>{{ os['solicitante'] }}</td>
+                    <td>
+                        {{ os['solicitante'] }}
+                        {% if 'Preventiva' in os['solicitante'] %}
+                            <span class="badge bg-info text-dark rounded-pill" style="font-size:0.65rem;">ROTINA</span>
+                        {% endif %}
+                    </td>
                     <td>
                         {% if os['operador'] %}
                             <span class="fw-semibold text-dark">{{ os['operador'] }}</span>
@@ -745,7 +834,6 @@ function filtrarOrdens() {
     });
 }
 
-// SINCRONIZAÇÃO EM TEMPO REAL: Toca áudio quando chega nova OS
 setInterval(function() {
     fetch('/api/status-sync')
         .then(r => r.json())
@@ -765,6 +853,198 @@ setInterval(function() {
 </script>
 """
 
+# ================= TELA: GESTÃO DE PREVENTIVAS RECORRENTES =================
+PREVENTIVAS_BODY = """
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <div>
+        <h4 class="fw-bold mb-0 text-dark">Planos de Manutenção Preventiva</h4>
+        <span class="text-muted small">Rotinas programadas que geram chamados automaticamente</span>
+    </div>
+    <a href="/nova-preventiva" class="m3-btn-filled">
+        <span class="material-symbols-rounded">add</span> Nova Rotina Preventiva
+    </a>
+</div>
+
+{% if msg_sucesso %}<div class="alert alert-success py-2 px-3 small rounded-3 mb-3 border-0 d-flex align-items-center gap-2"><span class="material-symbols-rounded fs-5">check_circle</span><span>{{ msg_sucesso }}</span></div>{% endif %}
+
+<div class="m3-card overflow-hidden">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead style="background: var(--md-sys-color-surface-container-low);">
+                <tr class="small text-uppercase fw-bold text-secondary">
+                    <th class="ps-4 py-3">Equipamento / Ativo</th>
+                    <th>Periodicidade</th>
+                    <th>Próxima Revisão</th>
+                    <th>Último Disparo</th>
+                    <th>Checklist / Tarefa</th>
+                    <th class="text-end pe-4">Ações</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in rotinas %}
+                <tr>
+                    <td class="ps-4 fw-bold text-dark">
+                        {{ p['equipamento'] }}
+                        <div class="text-muted small fw-normal">{{ p['solicitante'] }}</div>
+                    </td>
+                    <td>
+                        <span class="badge bg-secondary rounded-pill py-1 px-2">
+                            A cada {{ p['periodicidade_dias'] }} dias
+                        </span>
+                    </td>
+                    <td>
+                        {% if p['proxima_data'] <= hoje_iso %}
+                            <span class="badge bg-danger rounded-pill py-1 px-2">Vence Hoje / Atrasada</span>
+                        {% else %}
+                            <span class="fw-bold text-primary">{{ p['proxima_data_formatada'] }}</span>
+                        {% endif %}
+                    </td>
+                    <td class="small text-muted">
+                        {{ p['ultima_geracao'] or 'Aguardando 1º ciclo' }}
+                    </td>
+                    <td>
+                        <span class="small text-truncate d-inline-block" style="max-width: 220px;" title="{{ p['descricao'] }}">
+                            {{ p['descricao'] }}
+                        </span>
+                    </td>
+                    <td class="text-end pe-4">
+                        <div class="d-inline-flex align-items-center gap-1">
+                            <a href="/gerar-preventiva-agora/{{ p['id'] }}" class="m3-btn-tonal py-1 px-2" title="Disparar Ordem de Serviço Imediatamente">
+                                <span class="material-symbols-rounded fs-6">play_arrow</span> Disparar
+                            </a>
+                            <a href="/editar-preventiva/{{ p['id'] }}" class="m3-btn-tonal py-1 px-2" title="Editar Rotina">
+                                <span class="material-symbols-rounded fs-6">edit</span>
+                            </a>
+                            <a href="/excluir-preventiva/{{ p['id'] }}" class="m3-btn-danger py-1 px-2" onclick="return confirm('Deseja excluir esta rotina preventiva?');" title="Excluir Rotina">
+                                <span class="material-symbols-rounded fs-6">delete</span>
+                            </a>
+                        </div>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="6" class="text-center py-5 text-muted">
+                        <span class="material-symbols-rounded fs-1 d-block mb-2 text-secondary">event_busy</span>
+                        Nenhuma manutenção preventiva cadastrada. Crie uma nova rotina para automatizar seu cronograma.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+"""
+
+# ================= FORMULÁRIO: NOVA PREVENTIVA =================
+NOVA_PREVENTIVA_BODY = """
+<div class="row justify-content-center">
+    <div class="col-12 col-md-8 col-lg-7">
+        <div class="m3-card p-4 p-md-5">
+            <div class="d-flex align-items-center gap-3 mb-4">
+                <div class="m3-icon-badge" style="background: var(--md-sys-color-primary-container);"><span class="material-symbols-rounded fs-2 text-primary">event_repeat</span></div>
+                <div><h4 class="fw-bold mb-0">Nova Rotina Preventiva</h4><span class="text-muted small">Crie um ciclo de revisão com abertura de chamado automático</span></div>
+            </div>
+
+            <form method="POST">
+                <div class="mb-3">
+                    <label class="form-label small fw-bold text-uppercase text-secondary">Equipamento ou Local:</label>
+                    <input type="text" name="equipamento" class="form-control m3-input" placeholder="Ex: Bomba D'água de Recalque, Grupo Gerador, Ar Condicionado Central" required autofocus>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small fw-bold text-uppercase text-secondary">Setor / Responsável:</label>
+                    <input type="text" name="solicitante" class="form-control m3-input" placeholder="Ex: Manutenção Predial, Casa de Máquinas ou Portaria" required>
+                </div>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-bold text-uppercase text-secondary">Periodicidade (em dias):</label>
+                        <input type="number" id="inputPeriodicidade" name="periodicidade_dias" class="form-control m3-input" value="30" min="1" required>
+                        <div class="d-flex flex-wrap gap-1 mt-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="setDias(7)">7d</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="setDias(15)">15d</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="setDias(30)">30d</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="setDias(90)">90d</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="setDias(180)">180d</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="setDias(365)">1 ano</button>
+                        </div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-bold text-uppercase text-secondary">Data da 1ª Execução:</label>
+                        <input type="date" name="proxima_data" class="form-control m3-input" value="{{ hoje_iso }}" required>
+                        <small class="text-muted d-block mt-1">Data em que o sistema abrirá a OS automaticamente.</small>
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <label class="form-label small fw-bold text-uppercase text-secondary">Checklist / Instruções da Revisão:</label>
+                    <textarea name="descricao" rows="4" class="form-control m3-input" placeholder="Ex: 1. Limpeza de filtros; 2. Verificação de ruído e temperatura dos rolamentos; 3. Medição de corrente dos motores..." required></textarea>
+                </div>
+
+                <div class="d-flex justify-content-between align-items-center pt-2">
+                    <a href="/preventivas" class="m3-btn-tonal">Voltar</a>
+                    <button type="submit" class="m3-btn-filled"><span class="material-symbols-rounded">save</span> Gravar Rotina</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function setDias(n) {
+    document.getElementById('inputPeriodicidade').value = n;
+}
+</script>
+"""
+
+# ================= FORMULÁRIO: EDITAR PREVENTIVA =================
+EDITAR_PREVENTIVA_BODY = """
+<div class="row justify-content-center">
+    <div class="col-12 col-md-8 col-lg-7">
+        <div class="m3-card p-4 p-md-5">
+            <div class="d-flex align-items-center gap-3 mb-4">
+                <div class="m3-icon-badge" style="background: var(--md-sys-color-secondary-container);"><span class="material-symbols-rounded fs-2 text-primary">edit_calendar</span></div>
+                <div><h4 class="fw-bold mb-0">Editar Rotina Preventiva</h4><span class="text-muted small">Altere o intervalo de dias ou checklist</span></div>
+            </div>
+
+            <form method="POST">
+                <div class="mb-3">
+                    <label class="form-label small fw-bold text-uppercase text-secondary">Equipamento ou Local:</label>
+                    <input type="text" name="equipamento" class="form-control m3-input" value="{{ p['equipamento'] }}" required>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small fw-bold text-uppercase text-secondary">Setor / Responsável:</label>
+                    <input type="text" name="solicitante" class="form-control m3-input" value="{{ p['solicitante'] }}" required>
+                </div>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-bold text-uppercase text-secondary">Periodicidade (em dias):</label>
+                        <input type="number" id="inputPeriodicidade" name="periodicidade_dias" class="form-control m3-input" value="{{ p['periodicidade_dias'] }}" min="1" required>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-bold text-uppercase text-secondary">Data da Próxima Revisão:</label>
+                        <input type="date" name="proxima_data" class="form-control m3-input" value="{{ p['proxima_data'] }}" required>
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <label class="form-label small fw-bold text-uppercase text-secondary">Checklist / Instruções da Revisão:</label>
+                    <textarea name="descricao" rows="4" class="form-control m3-input" required>{{ p['descricao'] }}</textarea>
+                </div>
+
+                <div class="d-flex justify-content-between align-items-center pt-2">
+                    <a href="/preventivas" class="m3-btn-tonal">Voltar</a>
+                    <button type="submit" class="m3-btn-filled"><span class="material-symbols-rounded">save</span> Atualizar Rotina</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+"""
+
+# (Mantém as telas de Nova OS, Finalizar, Configurações e Usuários com suporte a upload de imagem)
 NOVA_BODY = """
 <div class="row justify-content-center">
     <div class="col-12 col-md-8 col-lg-7">
@@ -793,7 +1073,6 @@ NOVA_BODY = """
                     <textarea name="problema" rows="3" class="form-control m3-input" placeholder="Descreva ruídos, vazamento, falhas ou defeito visual..." required></textarea>
                 </div>
 
-                <!-- SELETOR DE FOTO DO PROBLEMA -->
                 <div class="mb-4 p-3 bg-light rounded-4 border">
                     <label class="form-label small fw-bold text-uppercase text-secondary d-block">
                         <span class="material-symbols-rounded fs-5 align-middle text-primary">add_a_photo</span>
@@ -832,11 +1111,8 @@ NOVA_BODY = """
 <script>
 function abrirCameraOuGaleria(tipo) {
     const input = document.getElementById('inputArquivoFoto');
-    if (tipo === 'camera') {
-        input.setAttribute('capture', 'environment');
-    } else {
-        input.removeAttribute('capture');
-    }
+    if (tipo === 'camera') { input.setAttribute('capture', 'environment'); }
+    else { input.removeAttribute('capture'); }
     input.click();
 }
 
@@ -847,7 +1123,6 @@ function carregarArquivoLocal(input) {
         reader.onload = function(e) {
             const img = new Image();
             img.onload = function() {
-                // Redimensiona para economizar espaço e evitar estouro de memória
                 const canvas = document.createElement('canvas');
                 const maxDim = 1000;
                 let w = img.width;
@@ -1104,11 +1379,8 @@ USUARIOS_BODY = """
 <script>
 function abrirFotoUser(tipo) {
     const input = document.getElementById('inputArquivoUser');
-    if (tipo === 'camera') {
-        input.setAttribute('capture', 'user');
-    } else {
-        input.removeAttribute('capture');
-    }
+    if (tipo === 'camera') { input.setAttribute('capture', 'user'); }
+    else { input.removeAttribute('capture'); }
     input.click();
 }
 
@@ -1197,11 +1469,8 @@ EDITAR_USUARIO_BODY = """
 <script>
 function abrirFotoEdit(tipo) {
     const input = document.getElementById('inputArquivoEdit');
-    if (tipo === 'camera') {
-        input.setAttribute('capture', 'user');
-    } else {
-        input.removeAttribute('capture');
-    }
+    if (tipo === 'camera') { input.setAttribute('capture', 'user'); }
+    else { input.removeAttribute('capture'); }
     input.click();
 }
 
@@ -1345,9 +1614,16 @@ USUARIOS_HTML = BASE_HTML.replace("<!-- CORPO_DA_PAGINA -->", USUARIOS_BODY)
 EDITAR_USUARIO_HTML = BASE_HTML.replace(
     "<!-- CORPO_DA_PAGINA -->", EDITAR_USUARIO_BODY
 )
+PREVENTIVAS_HTML = BASE_HTML.replace("<!-- CORPO_DA_PAGINA -->", PREVENTIVAS_BODY)
+NOVA_PREVENTIVA_HTML = BASE_HTML.replace(
+    "<!-- CORPO_DA_PAGINA -->", NOVA_PREVENTIVA_BODY
+)
+EDITAR_PREVENTIVA_HTML = BASE_HTML.replace(
+    "<!-- CORPO_DA_PAGINA -->", EDITAR_PREVENTIVA_BODY
+)
 
 
-# ================= ROTAS DE CONTROLE =================
+# ================= ROTAS DE CONTROLE & DASHBOARD =================
 @app.route("/login", methods=["GET", "POST"])
 def login():
   cfg = obter_configuracoes()
@@ -1374,6 +1650,187 @@ def logout():
   return redirect(url_for("login"))
 
 
+@app.route("/")
+def index():
+  verificar_gerar_preventivas()
+  cfg = obter_configuracoes()
+  with get_db() as db:
+    ordens = db.execute(
+        "SELECT * FROM ordens_servico ORDER BY id DESC"
+    ).fetchall()
+    total_os = len(ordens)
+    os_abertas = sum(1 for o in ordens if o["status"] == "ABERTA")
+    os_concluidas = sum(1 for o in ordens if o["status"] == "CONCLUÍDA")
+    total_prev = db.execute(
+        "SELECT COUNT(*) FROM preventivas WHERE ativo = 1"
+    ).fetchone()[0]
+
+  return render_template_string(
+      INDEX_HTML,
+      cfg=cfg,
+      ordens=ordens,
+      total_os=total_os,
+      os_abertas=os_abertas,
+      os_concluidas=os_concluidas,
+      total_preventivas=total_prev,
+  )
+
+
+# ================= ROTAS DE PREVENTIVAS RECORRENTES =================
+@app.route("/preventivas")
+def preventivas():
+  verificar_gerar_preventivas()
+  cfg = obter_configuracoes()
+  hoje_iso = datetime.now().strftime("%Y-%m-%d")
+
+  with get_db() as db:
+    rows = db.execute(
+        "SELECT * FROM preventivas WHERE ativo = 1 ORDER BY proxima_data ASC"
+    ).fetchall()
+
+  rotinas_formatadas = []
+  for r in rows:
+    item = dict(r)
+    try:
+      dt = datetime.strptime(item["proxima_data"], "%Y-%m-%d")
+      item["proxima_data_formatada"] = dt.strftime("%d/%m/%Y")
+    except Exception:
+      item["proxima_data_formatada"] = item["proxima_data"]
+    rotinas_formatadas.append(item)
+
+  return render_template_string(
+      PREVENTIVAS_HTML,
+      cfg=cfg,
+      rotinas=rotinas_formatadas,
+      hoje_iso=hoje_iso,
+      msg_sucesso=request.args.get("msg"),
+  )
+
+
+@app.route("/nova-preventiva", methods=["GET", "POST"])
+def nova_preventiva():
+  cfg = obter_configuracoes()
+  hoje_iso = datetime.now().strftime("%Y-%m-%d")
+
+  if request.method == "POST":
+    equipamento = request.form["equipamento"].strip()
+    solicitante = request.form["solicitante"].strip()
+    periodicidade = int(request.form.get("periodicidade_dias", 30))
+    proxima_data = request.form.get("proxima_data", hoje_iso).strip()
+    descricao = request.form["descricao"].strip()
+
+    with get_db() as db:
+      db.execute(
+          """
+                INSERT INTO preventivas (equipamento, solicitante, periodicidade_dias, proxima_data, descricao, ativo)
+                VALUES (?, ?, ?, ?, ?, 1)
+            """,
+          (equipamento, solicitante, periodicidade, proxima_data, descricao),
+      )
+
+    verificar_gerar_preventivas()
+    return redirect(
+        url_for("preventivas", msg="Rotina preventiva criada com sucesso!")
+    )
+
+  return render_template_string(
+      NOVA_PREVENTIVA_HTML, cfg=cfg, hoje_iso=hoje_iso
+  )
+
+
+@app.route("/editar-preventiva/<int:prev_id>", methods=["GET", "POST"])
+def editar_preventiva(prev_id):
+  cfg = obter_configuracoes()
+  with get_db() as db:
+    p = db.execute(
+        "SELECT * FROM preventivas WHERE id = ?", (prev_id,)
+    ).fetchone()
+
+  if not p:
+    return "Rotina preventiva não encontrada", 404
+
+  if request.method == "POST":
+    equipamento = request.form["equipamento"].strip()
+    solicitante = request.form["solicitante"].strip()
+    periodicidade = int(request.form.get("periodicidade_dias", 30))
+    proxima_data = request.form["proxima_data"].strip()
+    descricao = request.form["descricao"].strip()
+
+    with get_db() as db:
+      db.execute(
+          """
+                UPDATE preventivas 
+                SET equipamento = ?, solicitante = ?, periodicidade_dias = ?, proxima_data = ?, descricao = ?
+                WHERE id = ?
+            """,
+          (
+              equipamento,
+              solicitante,
+              periodicidade,
+              proxima_data,
+              descricao,
+              prev_id,
+          ),
+      )
+
+    verificar_gerar_preventivas()
+    return redirect(
+        url_for("preventivas", msg="Rotina preventiva atualizada com sucesso!")
+    )
+
+  return render_template_string(EDITAR_PREVENTIVA_HTML, cfg=cfg, p=p)
+
+
+@app.route("/excluir-preventiva/<int:prev_id>")
+def excluir_preventiva(prev_id):
+  with get_db() as db:
+    db.execute("DELETE FROM preventivas WHERE id = ?", (prev_id,))
+  return redirect(
+      url_for("preventivas", msg="Rotina preventiva removida do cronograma.")
+  )
+
+
+@app.route("/gerar-preventiva-agora/<int:prev_id>")
+def gerar_preventiva_agora(prev_id):
+  """Disparo manual imediato de um chamado preventivo antes da data."""
+  with get_db() as db:
+    p = db.execute(
+        "SELECT * FROM preventivas WHERE id = ?", (prev_id,)
+    ).fetchone()
+    if p:
+      agora_str = datetime.now().strftime("%d/%m/%Y %H:%M")
+      hoje_iso = datetime.now().strftime("%Y-%m-%d")
+      desc_os = (
+          f"[REVISÃO PREVENTIVA ANTECIPADA - A CADA {p['periodicidade_dias']}"
+          f" DIAS]\n{p['descricao']}"
+      )
+      solic = f"Preventiva ({p['solicitante']})"
+
+      db.execute(
+          """
+                INSERT INTO ordens_servico (equipamento, solicitante, problema, data_abertura, status, foto_problema)
+                VALUES (?, ?, ?, ?, 'ABERTA', '')
+            """,
+          (p["equipamento"], solic, desc_os, agora_str),
+      )
+
+      # Avança a próxima data a partir de hoje
+      dt_prox = datetime.now() + timedelta(days=int(p["periodicidade_dias"]))
+      db.execute(
+          """
+                UPDATE preventivas 
+                SET proxima_data = ?, ultima_geracao = ? 
+                WHERE id = ?
+            """,
+          (dt_prox.strftime("%Y-%m-%d"), hoje_iso, prev_id),
+      )
+
+  return redirect(
+      url_for("index", msg="Chamado preventivo disparado e aberto com sucesso!")
+  )
+
+
+# ================= GESTÃO DE USUÁRIOS & CONFIGURAÇÕES =================
 @app.route("/usuarios", methods=["GET", "POST"])
 def usuarios():
   cfg = obter_configuracoes()
@@ -1501,26 +1958,6 @@ def excluir_usuario(user_id):
     if user and user["usuario"] != "admin" and user["usuario"] != session.get("usuario"):
       db.execute("DELETE FROM usuarios WHERE id = ?", (user_id,))
   return redirect(url_for("usuarios"))
-
-
-@app.route("/")
-def index():
-  cfg = obter_configuracoes()
-  with get_db() as db:
-    ordens = db.execute(
-        "SELECT * FROM ordens_servico ORDER BY id DESC"
-    ).fetchall()
-    total_os = len(ordens)
-    os_abertas = sum(1 for o in ordens if o["status"] == "ABERTA")
-    os_concluidas = sum(1 for o in ordens if o["status"] == "CONCLUÍDA")
-  return render_template_string(
-      INDEX_HTML,
-      cfg=cfg,
-      ordens=ordens,
-      total_os=total_os,
-      os_abertas=os_abertas,
-      os_concluidas=os_concluidas,
-  )
 
 
 @app.route("/assumir-os/<int:os_id>")
