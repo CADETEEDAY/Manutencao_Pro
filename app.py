@@ -49,7 +49,7 @@ if DATABASE_URL:
 
 
 class DBWrapper:
-  """Compatibiliza as consultas SQL entre PostgreSQL (%s) e SQLite (?)."""
+  """Compatibiliza a sintaxe SQL entre PostgreSQL (%s) e SQLite (?)."""
 
   def __init__(self, conn, is_pg=False):
     self.conn = conn
@@ -118,7 +118,6 @@ def init_db():
           " TEXT;"
       )
 
-      # Tabela de Manutenções Preventivas Periódicas
       db.execute("""
                 CREATE TABLE IF NOT EXISTS preventivas (
                     id SERIAL PRIMARY KEY,
@@ -397,7 +396,7 @@ _Comprovante emitido via Sistema de Manutenção_"""
   return redirect(f"https://api.whatsapp.com/send?text={texto_url}")
 
 
-# ================= TEMPLATES (MATERIAL 3 EXPRESSIVE) =================
+# ================= TEMPLATES (MATERIAL 3) =================
 LOGIN_HTML = """<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -524,10 +523,6 @@ BASE_HTML = """<!DOCTYPE html>
             background-color: #ffe0e0;
             color: #ba1a1a;
         }
-        .m3-header-icon-pill.danger:hover {
-            background-color: #ffdad6;
-            color: #410002;
-        }
 
         .m3-card { background: #ffffff; border-radius: var(--md-shape-lg); border: 1px solid var(--md-sys-color-outline-variant); box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
         .m3-card-tonal { background: var(--md-sys-color-surface-container); border-radius: var(--md-shape-lg); border: none; }
@@ -536,6 +531,7 @@ BASE_HTML = """<!DOCTYPE html>
         .m3-stat-warning { background: var(--md-sys-color-warning-container); color: #241a00; }
         .m3-stat-success { background: var(--md-sys-color-success-container); color: #002107; }
         .m3-stat-tertiary { background: var(--md-sys-color-tertiary-container); color: #1d192b; }
+        .m3-icon-badge { width: 44px; height: 44px; border-radius: var(--md-shape-md); background: rgba(255, 255, 255, 0.5); display: flex; align-items: center; justify-content: center; }
         
         .m3-segmented-tabs { display: flex; background: var(--md-sys-color-surface-container); padding: 4px; border-radius: var(--md-shape-full); gap: 4px; }
         .m3-tab-item { flex: 1; text-align: center; padding: 8px 16px; border-radius: var(--md-shape-full); font-weight: 700; font-size: 0.82rem; cursor: pointer; color: var(--md-sys-color-on-surface); }
@@ -569,7 +565,7 @@ BASE_HTML = """<!DOCTYPE html>
                 </div>
             </a>
 
-            <!-- BARRA DE BOTÕES REDONDOS (PILLS) -->
+            <!-- BARRA DE BOTÕES ARREDONDADOS (EXATAMENTE COMO NAS SUAS FOTOS) -->
             <div class="d-flex align-items-center gap-2 pt-1 flex-wrap">
                 <a href="/preventivas" class="m3-header-icon-pill" title="Planos de Manutenção Preventiva">
                     <span class="material-symbols-rounded fs-5">event_repeat</span>
@@ -604,10 +600,8 @@ BASE_HTML = """<!DOCTYPE html>
         <!-- CORPO_DA_PAGINA -->
     </main>
 
-    <a href="/nova-os" class="m3-fab">
-        <span class="material-symbols-rounded">add</span>
-        <span>Nova Requisição</span>
-    </a>
+    <!-- FAB FIXO APENAS FORA DA TELA DE NOVA REQUISIÇÃO (NÃO COBRE OS BOTÕES) -->
+    <!-- BOTAO_FAB_AQUI -->
 
     <script>
     let somHabilitado = localStorage.getItem('manutencao_som') !== 'desativado';
@@ -684,6 +678,13 @@ BASE_HTML = """<!DOCTYPE html>
     </script>
 </body>
 </html>"""
+
+FAB_HTML = """
+<a href="/nova-os" class="m3-fab">
+    <span class="material-symbols-rounded">add</span>
+    <span>Nova Requisição</span>
+</a>
+"""
 
 INDEX_BODY = """
 <div class="row g-3 mb-4">
@@ -766,7 +767,7 @@ INDEX_BODY = """
                         {% if os['foto_problema'] %}
                             <img src="{{ os['foto_problema'] }}" style="width: 44px; height: 44px; object-fit: cover; border-radius: 8px; border: 1px solid #cbd5e1; cursor: pointer;" onclick="window.open('{{ os['foto_problema'] }}', '_blank')" title="Ampliar foto do defeito">
                         {% else %}
-                            <div style="width: 44px; height: 44px; background: #f1f5f9; border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                            <div style="width: 44px; height: 44px; background: #f1f5f9; border-radius: 8px; display: flex; align-items: center; justify-content: center;" title="Sem foto">
                                 <span class="material-symbols-rounded text-muted fs-5">image_not_supported</span>
                             </div>
                         {% endif %}
@@ -905,7 +906,7 @@ NOVA_BODY = """
                     <textarea name="problema" rows="3" class="form-control m3-input" placeholder="Descreva ruídos, vazamento, falhas ou defeito visual..." required></textarea>
                 </div>
 
-                <!-- SEÇÃO VISÍVEL DE FOTO DO LOCAL / DEFEITO DA SUA IMAGEM -->
+                <!-- SEÇÃO EXATA DE FOTO DO LOCAL / DEFEITO DA SUA IMAGEM -->
                 <div class="mb-4 p-3 bg-light rounded-4 border">
                     <label class="form-label small fw-bold text-uppercase text-secondary d-block">
                         <span class="material-symbols-rounded fs-5 align-middle text-primary">photo_camera</span>
@@ -1635,23 +1636,34 @@ RECIBO_A4_HTML = """<!DOCTYPE html>
 </html>
 """
 
-INDEX_HTML = BASE_HTML.replace("<!-- CORPO_DA_PAGINA -->", INDEX_BODY)
-NOVA_OS_HTML = BASE_HTML.replace("<!-- CORPO_DA_PAGINA -->", NOVA_BODY)
-FINALIZAR_OS_HTML = BASE_HTML.replace("<!-- CORPO_DA_PAGINA -->", FINALIZAR_BODY)
+# Montagem das páginas: o FAB só aparece onde não tapa formulários
+INDEX_HTML = BASE_HTML.replace("<!-- CORPO_DA_PAGINA -->", INDEX_BODY).replace(
+    "<!-- BOTAO_FAB_AQUI -->", FAB_HTML
+)
+NOVA_OS_HTML = BASE_HTML.replace("<!-- CORPO_DA_PAGINA -->", NOVA_BODY).replace(
+    "<!-- BOTAO_FAB_AQUI -->", ""
+)
+FINALIZAR_OS_HTML = BASE_HTML.replace(
+    "<!-- CORPO_DA_PAGINA -->", FINALIZAR_BODY
+).replace("<!-- BOTAO_FAB_AQUI -->", "")
 CONFIGURACOES_HTML = BASE_HTML.replace(
     "<!-- CORPO_DA_PAGINA -->", CONFIGURACOES_BODY
-)
-USUARIOS_HTML = BASE_HTML.replace("<!-- CORPO_DA_PAGINA -->", USUARIOS_BODY)
+).replace("<!-- BOTAO_FAB_AQUI -->", "")
+USUARIOS_HTML = BASE_HTML.replace(
+    "<!-- CORPO_DA_PAGINA -->", USUARIOS_BODY
+).replace("<!-- BOTAO_FAB_AQUI -->", "")
 EDITAR_USUARIO_HTML = BASE_HTML.replace(
     "<!-- CORPO_DA_PAGINA -->", EDITAR_USUARIO_BODY
-)
-PREVENTIVAS_HTML = BASE_HTML.replace("<!-- CORPO_DA_PAGINA -->", PREVENTIVAS_BODY)
+).replace("<!-- BOTAO_FAB_AQUI -->", "")
+PREVENTIVAS_HTML = BASE_HTML.replace(
+    "<!-- CORPO_DA_PAGINA -->", PREVENTIVAS_BODY
+).replace("<!-- BOTAO_FAB_AQUI -->", FAB_HTML)
 NOVA_PREVENTIVA_HTML = BASE_HTML.replace(
     "<!-- CORPO_DA_PAGINA -->", NOVA_PREVENTIVA_BODY
-)
+).replace("<!-- BOTAO_FAB_AQUI -->", "")
 EDITAR_PREVENTIVA_HTML = BASE_HTML.replace(
     "<!-- CORPO_DA_PAGINA -->", EDITAR_PREVENTIVA_BODY
-)
+).replace("<!-- BOTAO_FAB_AQUI -->", "")
 
 
 # ================= ROTAS DE CONTROLE & DASHBOARD =================
