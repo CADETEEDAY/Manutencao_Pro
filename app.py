@@ -30,9 +30,6 @@ app.secret_key = "chave_mestra_manutencao_predial_segura_2026"
 
 GLOBAL_WEBVIEW = None
 GLOBAL_ACTIVITY = None
-DISPARAR_GALERIA = None
-DISPARAR_CAMERA = None
-FOTO_CAPTURADA_PENDENTE = None
 LOCAL_IP = "127.0.0.1"
 
 # ================= CAMADA HÍBRIDA DE BANCO (POSTGRESQL / SQLITE) =================
@@ -52,6 +49,7 @@ if DATABASE_URL:
 
 
 class DBWrapper:
+  """Compatibiliza a sintaxe de parâmetros SQL entre PostgreSQL (%s) e SQLite (?)."""
 
   def __init__(self, conn, is_pg=False):
     self.conn = conn
@@ -241,6 +239,7 @@ def init_db():
 init_db()
 
 
+# ================= GERAÇÃO AUTOMÁTICA DE PREVENTIVAS =================
 def verificar_gerar_preventivas():
   hoje_iso = datetime.now().strftime("%Y-%m-%d")
   with get_db() as db:
@@ -304,6 +303,7 @@ def injetar_usuario_logado():
   return info
 
 
+# ================= PROTEÇÃO DE ROTAS =================
 @app.before_request
 def checar_autenticacao():
   rotas_livres = [
@@ -311,10 +311,6 @@ def checar_autenticacao():
       "static",
       "recibo",
       "ping",
-      "api_imprimir",
-      "api_abrir_galeria",
-      "api_abrir_camera",
-      "api_checar_foto",
       "api_status_sync",
       "compartilhar_whatsapp",
   ]
@@ -343,37 +339,7 @@ def tratar_erro(e):
   )
 
 
-# ================= APIS DO SELETOR NATIVO DE CÂMERA E GALERIA =================
-@app.route("/api/abrir-camera-android")
-def api_abrir_camera():
-  global FOTO_CAPTURADA_PENDENTE
-  FOTO_CAPTURADA_PENDENTE = None
-  sucesso = False
-  if callable(DISPARAR_CAMERA):
-    sucesso = DISPARAR_CAMERA()
-  return jsonify({"iniciado": sucesso})
-
-
-@app.route("/api/abrir-galeria-android")
-def api_abrir_galeria():
-  global FOTO_CAPTURADA_PENDENTE
-  FOTO_CAPTURADA_PENDENTE = None
-  sucesso = False
-  if callable(DISPARAR_GALERIA):
-    sucesso = DISPARAR_GALERIA()
-  return jsonify({"iniciado": sucesso})
-
-
-@app.route("/api/checar-foto")
-def api_checar_foto():
-  global FOTO_CAPTURADA_PENDENTE
-  if FOTO_CAPTURADA_PENDENTE:
-    foto = FOTO_CAPTURADA_PENDENTE
-    FOTO_CAPTURADA_PENDENTE = None
-    return jsonify({"pronto": True, "foto": foto})
-  return jsonify({"pronto": False})
-
-
+# ================= SINCRONIZAÇÃO EM TEMPO REAL =================
 @app.route("/api/status-sync")
 def api_status_sync():
   verificar_gerar_preventivas()
@@ -389,38 +355,7 @@ def api_status_sync():
   )
 
 
-@app.route("/api/imprimir/<int:os_id>")
-def api_imprimir(os_id):
-  global GLOBAL_WEBVIEW, GLOBAL_ACTIVITY
-  if GLOBAL_WEBVIEW and GLOBAL_ACTIVITY:
-    try:
-      from android.runnable import run_on_ui_thread
-      from jnius import autoclass
-
-      @run_on_ui_thread
-      def _exec_print():
-        try:
-          Context = autoclass("android.content.Context")
-          MediaSize = autoclass("android.print.PrintAttributes$MediaSize")
-          Builder = autoclass("android.print.PrintAttributes$Builder")
-
-          printManager = GLOBAL_ACTIVITY.getSystemService(Context.PRINT_SERVICE)
-          nome_job = f"Recibo_OS_{os_id:05d}"
-          printAdapter = GLOBAL_WEBVIEW.createPrintDocumentAdapter(nome_job)
-
-          builder = Builder()
-          builder.setMediaSize(MediaSize.ISO_A4)
-          printManager.print(nome_job, printAdapter, builder.build())
-        except Exception as err:
-          print("Erro no PrintManager:", err)
-
-      _exec_print()
-      return jsonify({"sucesso": True})
-    except Exception as e:
-      return jsonify({"sucesso": False, "erro": str(e)})
-  return jsonify({"sucesso": False, "motivo": "webview_indisponivel"})
-
-
+# ================= WHATSAPP =================
 @app.route("/compartilhar-whatsapp/<int:os_id>")
 def compartilhar_whatsapp(os_id):
   cfg = obter_configuracoes()
@@ -490,7 +425,7 @@ LOGIN_HTML = """<!DOCTYPE html>
                 </div>
             {% endif %}
             <h4 class="fw-bold mb-1 text-dark">{{ cfg['nome_empresa'] }}</h4>
-            <span class="text-muted small">Controle de Manutenção Preventiva & Corretiva</span>
+            <span class="text-muted small">Controle de Manutenção em Nuvem</span>
         </div>
         {% if erro %}
             <div class="alert alert-danger py-2 px-3 small rounded-3 mb-3 border-0 d-flex align-items-center gap-2">
@@ -610,7 +545,8 @@ BASE_HTML = """<!DOCTYPE html>
                     <span class="d-none d-sm-inline">Preventivas</span>
                 </a>
 
-                <button type="button" id="btnSomNotif" onclick="alternarSom()" class="m3-btn-tonal py-1 px-3" title="Ativar/Desativar som">
+                <!-- BOTÃO DE NOTIFICAÇÃO SONORA E TESTE -->
+                <button type="button" id="btnSomNotif" onclick="alternarSom()" class="m3-btn-tonal py-1 px-3" title="Ativar/Desativar som de novos chamados">
                     <span class="material-symbols-rounded fs-5" id="iconeSom">notifications_active</span>
                 </button>
 
@@ -649,6 +585,21 @@ BASE_HTML = """<!DOCTYPE html>
 
     <script>
     let somHabilitado = localStorage.getItem('manutencao_som') !== 'desativado';
+    let audioCtx = null;
+
+    function getAudioContext() {
+        if (!audioCtx) {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            audioCtx = new AudioCtx();
+        }
+        if (audioCtx.state === 'suspended') {
+            audioCtx.resume();
+        }
+        return audioCtx;
+    }
+
+    document.addEventListener('click', function() { getAudioContext(); }, { once: true });
+    document.addEventListener('touchstart', function() { getAudioContext(); }, { once: true });
 
     function atualizarIconeSom() {
         const icon = document.getElementById('iconeSom');
@@ -662,38 +613,48 @@ BASE_HTML = """<!DOCTYPE html>
         somHabilitado = !somHabilitado;
         localStorage.setItem('manutencao_som', somHabilitado ? 'ativado' : 'desativado');
         atualizarIconeSom();
-        if (somHabilitado) { tocarSomNotificacao(); }
+        if (somHabilitado) {
+            tocarSomNotificacao();
+        }
     }
 
     function tocarSomNotificacao() {
         if (!somHabilitado) return;
         try {
-            const AudioCtx = window.AudioContext || window.webkitAudioContext;
-            const ctx = new AudioCtx();
+            const ctx = getAudioContext();
             const now = ctx.currentTime;
 
+            // Tom 1 (D5 - 587Hz)
             const osc1 = ctx.createOscillator();
             const gain1 = ctx.createGain();
             osc1.type = 'sine';
-            osc1.frequency.setValueAtTime(523.25, now);
-            gain1.gain.setValueAtTime(0.3, now);
-            gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+            osc1.frequency.setValueAtTime(587.33, now);
+            gain1.gain.setValueAtTime(0.5, now);
+            gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
             osc1.connect(gain1);
             gain1.connect(ctx.destination);
             osc1.start(now);
-            osc1.stop(now + 0.35);
+            osc1.stop(now + 0.4);
 
+            // Tom 2 (A5 - 880Hz)
             const osc2 = ctx.createOscillator();
             const gain2 = ctx.createGain();
             osc2.type = 'sine';
-            osc2.frequency.setValueAtTime(783.99, now + 0.18);
-            gain2.gain.setValueAtTime(0.4, now + 0.18);
-            gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
+            osc2.frequency.setValueAtTime(880.00, now + 0.15);
+            gain2.gain.setValueAtTime(0.6, now + 0.15);
+            gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
             osc2.connect(gain2);
             gain2.connect(ctx.destination);
-            osc2.start(now + 0.18);
-            osc2.stop(now + 0.7);
-        } catch (e) { console.log('Áudio:', e); }
+            osc2.start(now + 0.15);
+            osc2.stop(now + 0.8);
+
+            // Vibração tátil no celular Android
+            if ('vibrate' in navigator) {
+                navigator.vibrate([200, 100, 250]);
+            }
+        } catch (e) {
+            console.log('Áudio:', e);
+        }
     }
     </script>
 </body>
@@ -778,9 +739,9 @@ INDEX_BODY = """
                     <td class="ps-4 fw-bold text-primary">#{{ "%05d" % os['id'] }}</td>
                     <td>
                         {% if os['foto_problema'] %}
-                            <img src="{{ os['foto_problema'] }}" style="width: 44px; height: 44px; object-fit: cover; border-radius: 8px; border: 1px solid #cbd5e1; cursor: pointer;" onclick="window.open('{{ os['foto_problema'] }}', '_blank')" title="Ampliar foto">
+                            <img src="{{ os['foto_problema'] }}" style="width: 44px; height: 44px; object-fit: cover; border-radius: 8px; border: 1px solid #cbd5e1; cursor: pointer;" onclick="window.open('{{ os['foto_problema'] }}', '_blank')" title="Ampliar foto da avaria">
                         {% else %}
-                            <div style="width: 44px; height: 44px; background: #f1f5f9; border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                            <div style="width: 44px; height: 44px; background: #f1f5f9; border-radius: 8px; display: flex; align-items: center; justify-content: center;" title="Sem foto">
                                 <span class="material-symbols-rounded text-muted fs-5">image_not_supported</span>
                             </div>
                         {% endif %}
@@ -865,6 +826,7 @@ function filtrarOrdens() {
     });
 }
 
+// SINCRONIZAÇÃO EM TEMPO REAL COM SOM DE ALERTA
 setInterval(function() {
     fetch('/api/status-sync')
         .then(r => r.json())
@@ -872,19 +834,21 @@ setInterval(function() {
             if (data.total > totalAtual) {
                 tocarSomNotificacao();
                 const banner = document.getElementById('bannerNovaOS');
-                if (banner) banner.style.display = 'block';
+                if (banner) {
+                    banner.style.display = 'block';
+                    banner.scrollIntoView({ behavior: 'smooth' });
+                }
                 totalAtual = data.total;
-                concluidasAtual = data.concluidas;
-                setTimeout(() => { window.location.reload(); }, 2000);
+                setTimeout(() => { window.location.reload(); }, 2500);
             } else if (data.concluidas !== concluidasAtual) {
                 window.location.reload();
             }
         }).catch(e => {});
-}, 8000);
+}, 6000);
 </script>
 """
 
-# ================= NOVA REQUISIÇÃO (COM CÂMERA E GALERIA CORRIGIDAS) =================
+# ================= TELA: NOVA REQUISIÇÃO (COM BOTÕES DE CÂMARA E GALERIA) =================
 NOVA_BODY = """
 <div class="row justify-content-center">
     <div class="col-12 col-md-8 col-lg-7">
@@ -895,8 +859,7 @@ NOVA_BODY = """
             </div>
 
             <form method="POST" enctype="multipart/form-data">
-                <input type="hidden" name="foto_base64_capturada" id="foto_base64_capturada" value="">
-                <input type="file" id="inputArquivoFallback" style="display:none;" accept="image/*" onchange="carregarArquivoLocal(this)">
+                <input type="hidden" name="foto_problema" id="foto_problema" value="">
 
                 <div class="mb-3">
                     <label class="form-label small fw-bold text-uppercase text-secondary">Equipamento ou Local:</label>
@@ -910,33 +873,43 @@ NOVA_BODY = """
 
                 <div class="mb-3">
                     <label class="form-label small fw-bold text-uppercase text-secondary">Descrição da Ocorrência:</label>
-                    <textarea name="problema" rows="3" class="form-control m3-input" placeholder="Descreva ruídos, vazamento, falhas ou defeito visual..." required></textarea>
+                    <textarea name="problema" rows="3" class="form-control m3-input" placeholder="Descreva ruídos, vazamentos, avarias ou inspeção solicitada..." required></textarea>
                 </div>
 
-                <!-- SELETOR DE FOTO DO PROBLEMA COM PONTE NATIVA -->
+                <!-- SEÇÃO VISÍVEL E COMPLETA DE CAPTURA DE FOTOGRAFIA -->
                 <div class="mb-4 p-3 bg-light rounded-4 border">
                     <label class="form-label small fw-bold text-uppercase text-secondary d-block">
                         <span class="material-symbols-rounded fs-5 align-middle text-primary">add_a_photo</span>
-                        Foto do Local / Defeito:
+                        Foto do Defeito / Ocorrência:
                     </label>
 
                     <div class="text-center mb-3">
-                        <div style="width: 100%; max-height: 220px; min-height: 120px; border: 2px dashed #cbd5e1; border-radius: 16px; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #ffffff;">
-                            <img id="previewFoto" src="" style="width: 100%; max-height: 220px; object-fit: contain; display: none;">
-                            <div id="placeholderFoto" class="text-secondary p-3">
+                        <div style="width: 100%; max-height: 250px; min-height: 130px; border: 2px dashed #cbd5e1; border-radius: 16px; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #ffffff;">
+                            <img id="previewFoto" src="" style="width: 100%; max-height: 250px; object-fit: contain; display: none;">
+                            <div id="placeholderFoto" class="text-secondary p-3 text-center">
                                 <span class="material-symbols-rounded fs-1 text-muted d-block mb-1">image</span>
-                                <span class="small text-muted fw-bold">Nenhuma imagem anexada</span>
+                                <span class="small text-muted fw-bold">Nenhuma foto anexada</span>
+                                <div class="text-muted" style="font-size: 0.72rem;">Tire uma foto ou selecione da galeria</div>
                             </div>
+                        </div>
+                        <div id="btnRemoverFoto" class="mt-2" style="display: none;">
+                            <button type="button" class="btn btn-sm btn-outline-danger py-1 px-3 rounded-pill" onclick="removerFoto()">
+                                <span class="material-symbols-rounded fs-6 align-middle">delete</span> Remover Foto
+                            </button>
                         </div>
                     </div>
 
                     <div class="d-flex gap-2">
-                        <button type="button" class="m3-btn-filled flex-fill py-2" onclick="abrirCamera(this)">
-                            <span class="material-symbols-rounded fs-5">photo_camera</span> Tirar Foto
-                        </button>
-                        <button type="button" class="m3-btn-tonal flex-fill py-2" onclick="abrirGaleria(this)">
-                            <span class="material-symbols-rounded fs-5">photo_library</span> Galeria
-                        </button>
+                        <label class="m3-btn-filled flex-fill py-2 text-center" style="cursor: pointer; margin-bottom: 0;">
+                            <span class="material-symbols-rounded fs-5 align-middle">photo_camera</span> 
+                            <span class="align-middle fw-bold">Tirar Foto</span>
+                            <input type="file" accept="image/*" capture="environment" style="display: none;" onchange="processarFoto(this)">
+                        </label>
+                        <label class="m3-btn-tonal flex-fill py-2 text-center" style="cursor: pointer; margin-bottom: 0;">
+                            <span class="material-symbols-rounded fs-5 align-middle">photo_library</span> 
+                            <span class="align-middle fw-bold">Galeria</span>
+                            <input type="file" accept="image/*" style="display: none;" onchange="processarFoto(this)">
+                        </label>
                     </div>
                 </div>
 
@@ -950,91 +923,49 @@ NOVA_BODY = """
 </div>
 
 <script>
-var timerChecagem = null;
-
-function checarFotoCapturada() {
-    fetch('/api/checar-foto')
-        .then(r => r.json())
-        .then(res => {
-            if (res.pronto && res.foto) {
-                if (timerChecagem) clearInterval(timerChecagem);
-                aplicarFotoNaTela(res.foto);
-            }
-        }).catch(err => {});
-}
-
-function aplicarFotoNaTela(b64) {
-    var prev = document.getElementById('previewFoto');
-    var plc = document.getElementById('placeholderFoto');
-    if (prev) { prev.src = b64; prev.style.display = 'block'; }
-    if (plc) { plc.style.display = 'none'; }
-    var inputHidden = document.getElementById('foto_base64_capturada');
-    if (inputHidden) { inputHidden.value = b64; }
-}
-
-document.addEventListener("visibilitychange", function() {
-    if (document.visibilityState === "visible") {
-        checarFotoCapturada();
-        setTimeout(checarFotoCapturada, 500);
-        setTimeout(checarFotoCapturada, 1200);
-    }
-});
-window.addEventListener("focus", checarFotoCapturada);
-
-function abrirCamera(btn) {
-    btn.disabled = true;
-    var originalText = btn.innerHTML;
-    btn.innerHTML = '⏳ Abrindo Câmera...';
-
-    fetch('/api/abrir-camera-android')
-        .then(r => r.json())
-        .then(data => {
-            btn.disabled = false;
-            btn.innerHTML = originalText;
-            if (data.iniciado) {
-                if (timerChecagem) clearInterval(timerChecagem);
-                timerChecagem = setInterval(checarFotoCapturada, 1000);
-            } else {
-                document.getElementById('inputArquivoFallback').click();
-            }
-        }).catch(e => {
-            btn.disabled = false;
-            btn.innerHTML = originalText;
-            document.getElementById('inputArquivoFallback').click();
-        });
-}
-
-function abrirGaleria(btn) {
-    btn.disabled = true;
-    var originalText = btn.innerHTML;
-    btn.innerHTML = '⏳ Abrindo Galeria...';
-
-    fetch('/api/abrir-galeria-android')
-        .then(r => r.json())
-        .then(data => {
-            btn.disabled = false;
-            btn.innerHTML = originalText;
-            if (data.iniciado) {
-                if (timerChecagem) clearInterval(timerChecagem);
-                timerChecagem = setInterval(checarFotoCapturada, 1000);
-            } else {
-                document.getElementById('inputArquivoFallback').click();
-            }
-        }).catch(e => {
-            btn.disabled = false;
-            btn.innerHTML = originalText;
-            document.getElementById('inputArquivoFallback').click();
-        });
-}
-
-function carregarArquivoLocal(input) {
+function processarFoto(input) {
     if (input.files && input.files[0]) {
-        var reader = new FileReader();
+        const file = input.files[0];
+        const reader = new FileReader();
         reader.onload = function(e) {
-            aplicarFotoNaTela(e.target.result);
+            const img = new Image();
+            img.onload = function() {
+                const canvas = document.createElement('canvas');
+                const maxDim = 1280;
+                let w = img.width;
+                let h = img.height;
+                if (w > maxDim || h > maxDim) {
+                    if (w > h) { h = Math.round((h * maxDim) / w); w = maxDim; }
+                    else { w = Math.round((w * maxDim) / h); h = maxDim; }
+                }
+                canvas.width = w;
+                canvas.height = h;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, w, h);
+                const b64 = canvas.toDataURL('image/jpeg', 0.85);
+
+                const prev = document.getElementById('previewFoto');
+                const plc = document.getElementById('placeholderFoto');
+                const btnRemover = document.getElementById('btnRemoverFoto');
+                if (prev) { prev.src = b64; prev.style.display = 'block'; }
+                if (plc) { plc.style.display = 'none'; }
+                if (btnRemover) { btnRemover.style.display = 'block'; }
+                document.getElementById('foto_problema').value = b64;
+            };
+            img.src = e.target.result;
         };
-        reader.readAsDataURL(input.files[0]);
+        reader.readAsDataURL(file);
     }
+}
+
+function removerFoto() {
+    const prev = document.getElementById('previewFoto');
+    const plc = document.getElementById('placeholderFoto');
+    const btnRemover = document.getElementById('btnRemoverFoto');
+    if (prev) { prev.src = ''; prev.style.display = 'none'; }
+    if (plc) { plc.style.display = 'block'; }
+    if (btnRemover) { btnRemover.style.display = 'none'; }
+    document.getElementById('foto_problema').value = '';
 }
 </script>
 """
@@ -1062,7 +993,7 @@ FINALIZAR_BODY = """
 
                     {% if os['foto_problema'] %}
                     <div class="col-12 mt-2 pt-2 border-top">
-                        <span class="text-secondary small fw-bold text-uppercase d-block mb-1">Foto da Ocorrência:</span>
+                        <span class="text-secondary small fw-bold text-uppercase d-block mb-1">Foto da Ocorrência Anexada:</span>
                         <img src="{{ os['foto_problema'] }}" style="max-height: 240px; border-radius: 12px; border: 1px solid #cbd5e1; cursor: pointer;" onclick="window.open('{{ os['foto_problema'] }}', '_blank')" title="Toque para ampliar">
                     </div>
                     {% endif %}
@@ -1096,7 +1027,7 @@ PREVENTIVAS_BODY = """
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
     <div>
         <h4 class="fw-bold mb-0 text-dark">Planos de Manutenção Preventiva</h4>
-        <span class="text-muted small">Rotinas programadas que geram chamados automaticamente</span>
+        <span class="text-muted small">Rotinas periódicas que geram chamados automaticamente</span>
     </div>
     <a href="/nova-preventiva" class="m3-btn-filled">
         <span class="material-symbols-rounded">add</span> Nova Rotina Preventiva
@@ -1206,7 +1137,7 @@ NOVA_PREVENTIVA_BODY = """
 
                 <div class="mb-4">
                     <label class="form-label small fw-bold text-uppercase text-secondary">Checklist / Instruções da Revisão:</label>
-                    <textarea name="descricao" rows="4" class="form-control m3-input" placeholder="Ex: 1. Limpeza de filtros; 2. Verificação de ruído..." required></textarea>
+                    <textarea name="descricao" rows="4" class="form-control m3-input" placeholder="Ex: 1. Limpeza de filtros; 2. Verificação de ruído e temperatura dos rolamentos..." required></textarea>
                 </div>
 
                 <div class="d-flex justify-content-between align-items-center pt-2">
@@ -1275,8 +1206,7 @@ CONFIGURACOES_BODY = """
             </div>
 
             <form method="POST" enctype="multipart/form-data">
-                <input type="hidden" name="foto_base64_capturada" id="foto_base64_capturada" value="">
-                <input type="file" id="inputArquivoFallback" style="display:none;" accept="image/*" onchange="carregarArquivoLocal(this)">
+                <input type="hidden" name="logo_base64_hidden" id="logo_base64_hidden" value="">
 
                 <div class="mb-3"><label class="form-label small fw-bold text-uppercase text-secondary">Nome da Empresa / Condomínio:</label><input type="text" name="nome_empresa" class="form-control m3-input" value="{{ cfg['nome_empresa'] }}" required></div>
                 <div class="mb-3"><label class="form-label small fw-bold text-uppercase text-secondary">Subtítulo / Ramo de Atuação:</label><input type="text" name="subtitulo" class="form-control m3-input" value="{{ cfg['subtitulo'] }}" placeholder="Ex: Gestão de Manutenção Predial"></div>
@@ -1291,16 +1221,13 @@ CONFIGURACOES_BODY = """
                         {% endif %}
                     </div>
 
-                    <div class="d-flex gap-2">
-                        <button type="button" class="m3-btn-filled flex-fill" onclick="abrirGaleria(this)">
-                            <span class="material-symbols-rounded fs-5">photo_library</span> Galeria
-                        </button>
-                        <button type="button" class="m3-btn-tonal flex-fill" onclick="abrirCamera(this)">
-                            <span class="material-symbols-rounded fs-5">photo_camera</span> Tirar Foto
-                        </button>
-                    </div>
+                    <label class="m3-btn-filled w-100 mb-2 text-center" style="cursor: pointer;">
+                        <span class="material-symbols-rounded fs-5 align-middle">photo_library</span> 
+                        <span class="align-middle">Escolher Imagem do Logo</span>
+                        <input type="file" accept="image/*" style="display: none;" onchange="processarLogo(this)">
+                    </label>
 
-                    <label class="form-label small fw-semibold text-secondary d-block mt-3">Ou use o Link / URL da Imagem:</label>
+                    <label class="form-label small fw-semibold text-secondary d-block mt-3">Ou cole a URL da Imagem:</label>
                     <input type="url" name="logo_url" class="form-control m3-input" placeholder="https://exemplo.com/minha-logo.png">
                 </div>
 
@@ -1328,56 +1255,16 @@ CONFIGURACOES_BODY = """
 </div>
 
 <script>
-var timerChecagem = null;
-
-function checarFotoCapturada() {
-    fetch('/api/checar-foto')
-        .then(r => r.json())
-        .then(res => {
-            if (res.pronto && res.foto) {
-                if (timerChecagem) clearInterval(timerChecagem);
-                var prev = document.getElementById('previewLogo');
-                if (prev) { prev.src = res.foto; prev.style.display = 'inline-block'; }
-                document.getElementById('foto_base64_capturada').value = res.foto;
-            }
-        }).catch(err => {});
-}
-
-function abrirCamera(btn) {
-    fetch('/api/abrir-camera-android')
-        .then(r => r.json())
-        .then(data => {
-            if (data.iniciado) {
-                if (timerChecagem) clearInterval(timerChecagem);
-                timerChecagem = setInterval(checarFotoCapturada, 1000);
-            } else {
-                document.getElementById('inputArquivoFallback').click();
-            }
-        }).catch(e => { document.getElementById('inputArquivoFallback').click(); });
-}
-
-function abrirGaleria(btn) {
-    fetch('/api/abrir-galeria-android')
-        .then(r => r.json())
-        .then(data => {
-            if (data.iniciado) {
-                if (timerChecagem) clearInterval(timerChecagem);
-                timerChecagem = setInterval(checarFotoCapturada, 1000);
-            } else {
-                document.getElementById('inputArquivoFallback').click();
-            }
-        }).catch(e => { document.getElementById('inputArquivoFallback').click(); });
-}
-
-function carregarArquivoLocal(input) {
+function processarLogo(input) {
     if (input.files && input.files[0]) {
-        var reader = new FileReader();
+        const file = input.files[0];
+        const reader = new FileReader();
         reader.onload = function(e) {
-            var prev = document.getElementById('previewLogo');
+            const prev = document.getElementById('previewLogo');
             if (prev) { prev.src = e.target.result; prev.style.display = 'inline-block'; }
-            document.getElementById('foto_base64_capturada').value = e.target.result;
+            document.getElementById('logo_base64_hidden').value = e.target.result;
         };
-        reader.readAsDataURL(input.files[0]);
+        reader.readAsDataURL(file);
     }
 }
 </script>
@@ -1396,27 +1283,28 @@ USUARIOS_BODY = """
             {% if msg_erro %}<div class="alert alert-danger py-2 px-3 small rounded-3 mb-3 border-0 d-flex align-items-center gap-2"><span class="material-symbols-rounded fs-5">error</span><span>{{ msg_erro }}</span></div>{% endif %}
 
             <form method="POST" enctype="multipart/form-data">
-                <input type="hidden" name="foto_base64_capturada" id="foto_base64_capturada" value="">
-                <input type="file" id="inputArquivoFallback" style="display:none;" accept="image/*" onchange="carregarArquivoLocal(this)">
+                <input type="hidden" name="foto_base64_capturada" id="foto_base64_user" value="">
 
                 <div class="row g-4 align-items-center mb-3">
                     <div class="col-12 col-md-4 text-center">
                         <label class="form-label small fw-bold text-uppercase text-secondary d-block">Foto 3x4:</label>
                         <div style="width: 105px; height: 140px; border: 2px dashed #c3c7d0; border-radius: 14px; margin: 0 auto; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #f2f3f9;">
-                            <img id="previewFoto" src="" style="width: 100%; height: 100%; object-fit: cover; display: none;">
-                            <div id="placeholderFoto" class="text-secondary text-center">
+                            <img id="previewUser" src="" style="width: 100%; height: 100%; object-fit: cover; display: none;">
+                            <div id="placeholderUser" class="text-secondary text-center">
                                 <span class="material-symbols-rounded fs-1 d-block mb-1">add_a_photo</span>
                                 <span style="font-size: 0.65rem; font-weight: 700;">3 x 4</span>
                             </div>
                         </div>
 
                         <div class="d-flex gap-2 mt-2">
-                            <button type="button" class="m3-btn-filled flex-fill py-2" onclick="abrirCamera(this)">
-                                <span class="material-symbols-rounded fs-5">photo_camera</span> Foto
-                            </button>
-                            <button type="button" class="m3-btn-tonal flex-fill py-2" onclick="abrirGaleria(this)">
-                                <span class="material-symbols-rounded fs-5">photo_library</span> Galeria
-                            </button>
+                            <label class="m3-btn-filled flex-fill py-2 text-center" style="cursor: pointer; margin-bottom: 0;">
+                                <span class="material-symbols-rounded fs-5 align-middle">photo_camera</span> Foto
+                                <input type="file" accept="image/*" capture="user" style="display: none;" onchange="processarFotoUser(this)">
+                            </label>
+                            <label class="m3-btn-tonal flex-fill py-2 text-center" style="cursor: pointer; margin-bottom: 0;">
+                                <span class="material-symbols-rounded fs-5 align-middle">photo_library</span> Galeria
+                                <input type="file" accept="image/*" style="display: none;" onchange="processarFotoUser(this)">
+                            </label>
                         </div>
                     </div>
 
@@ -1483,60 +1371,18 @@ USUARIOS_BODY = """
 </div>
 
 <script>
-var timerChecagem = null;
-
-function checarFotoCapturada() {
-    fetch('/api/checar-foto')
-        .then(r => r.json())
-        .then(res => {
-            if (res.pronto && res.foto) {
-                if (timerChecagem) clearInterval(timerChecagem);
-                var prev = document.getElementById('previewFoto');
-                var plc = document.getElementById('placeholderFoto');
-                if (prev) { prev.src = res.foto; prev.style.display = 'block'; }
-                if (plc) { plc.style.display = 'none'; }
-                document.getElementById('foto_base64_capturada').value = res.foto;
-            }
-        }).catch(err => {});
-}
-
-function abrirCamera(btn) {
-    fetch('/api/abrir-camera-android')
-        .then(r => r.json())
-        .then(data => {
-            if (data.iniciado) {
-                if (timerChecagem) clearInterval(timerChecagem);
-                timerChecagem = setInterval(checarFotoCapturada, 1000);
-            } else {
-                document.getElementById('inputArquivoFallback').click();
-            }
-        }).catch(e => { document.getElementById('inputArquivoFallback').click(); });
-}
-
-function abrirGaleria(btn) {
-    fetch('/api/abrir-galeria-android')
-        .then(r => r.json())
-        .then(data => {
-            if (data.iniciado) {
-                if (timerChecagem) clearInterval(timerChecagem);
-                timerChecagem = setInterval(checarFotoCapturada, 1000);
-            } else {
-                document.getElementById('inputArquivoFallback').click();
-            }
-        }).catch(e => { document.getElementById('inputArquivoFallback').click(); });
-}
-
-function carregarArquivoLocal(input) {
+function processarFotoUser(input) {
     if (input.files && input.files[0]) {
-        var reader = new FileReader();
+        const file = input.files[0];
+        const reader = new FileReader();
         reader.onload = function(e) {
-            var prev = document.getElementById('previewFoto');
-            var plc = document.getElementById('placeholderFoto');
+            const prev = document.getElementById('previewUser');
+            const plc = document.getElementById('placeholderUser');
             if (prev) { prev.src = e.target.result; prev.style.display = 'block'; }
             if (plc) { plc.style.display = 'none'; }
-            document.getElementById('foto_base64_capturada').value = e.target.result;
+            document.getElementById('foto_base64_user').value = e.target.result;
         };
-        reader.readAsDataURL(input.files[0]);
+        reader.readAsDataURL(file);
     }
 }
 </script>
@@ -1554,15 +1400,14 @@ EDITAR_USUARIO_BODY = """
             {% if msg_erro %}<div class="alert alert-danger py-2 px-3 small rounded-3 mb-3 border-0 d-flex align-items-center gap-2"><span class="material-symbols-rounded fs-5">error</span><span>{{ msg_erro }}</span></div>{% endif %}
 
             <form method="POST" enctype="multipart/form-data">
-                <input type="hidden" name="foto_base64_capturada" id="foto_base64_capturada" value="">
-                <input type="file" id="inputArquivoFallback" style="display:none;" accept="image/*" onchange="carregarArquivoLocal(this)">
+                <input type="hidden" name="foto_base64_capturada" id="foto_base64_edit" value="">
 
                 <div class="row g-4 align-items-center mb-3">
                     <div class="col-12 col-md-4 text-center">
                         <label class="form-label small fw-bold text-uppercase text-secondary d-block">Foto 3x4:</label>
                         <div style="width: 105px; height: 140px; border: 2px dashed #c3c7d0; border-radius: 14px; margin: 0 auto; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #f2f3f9;">
-                            <img id="previewFoto" src="{{ u['foto_base64'] or '' }}" style="width: 100%; height: 100%; object-fit: cover; {% if not u['foto_base64'] %}display:none;{% endif %}">
-                            <div id="placeholderFoto" class="text-secondary text-center" {% if u['foto_base64'] %}style="display:none;"{% endif %}>
+                            <img id="previewEdit" src="{{ u['foto_base64'] or '' }}" style="width: 100%; height: 100%; object-fit: cover; {% if not u['foto_base64'] %}display:none;{% endif %}">
+                            <div id="placeholderEdit" class="text-secondary text-center" {% if u['foto_base64'] %}style="display:none;"{% endif %}>
                                 <span class="material-symbols-rounded fs-1 d-block mb-1">person</span>
                                 <span style="font-size: 0.65rem; font-weight: 700;">Sem Foto</span>
                             </div>
@@ -1573,12 +1418,14 @@ EDITAR_USUARIO_BODY = """
                         {% endif %}
 
                         <div class="d-flex gap-2 mt-2">
-                            <button type="button" class="m3-btn-filled flex-fill py-2" onclick="abrirCamera(this)">
-                                <span class="material-symbols-rounded fs-5">photo_camera</span> Foto
-                            </button>
-                            <button type="button" class="m3-btn-tonal flex-fill py-2" onclick="abrirGaleria(this)">
-                                <span class="material-symbols-rounded fs-5">photo_library</span> Galeria
-                            </button>
+                            <label class="m3-btn-filled flex-fill py-2 text-center" style="cursor: pointer; margin-bottom: 0;">
+                                <span class="material-symbols-rounded fs-5 align-middle">photo_camera</span> Foto
+                                <input type="file" accept="image/*" capture="user" style="display: none;" onchange="processarFotoEdit(this)">
+                            </label>
+                            <label class="m3-btn-tonal flex-fill py-2 text-center" style="cursor: pointer; margin-bottom: 0;">
+                                <span class="material-symbols-rounded fs-5 align-middle">photo_library</span> Galeria
+                                <input type="file" accept="image/*" style="display: none;" onchange="processarFotoEdit(this)">
+                            </label>
                         </div>
                     </div>
 
@@ -1608,60 +1455,18 @@ EDITAR_USUARIO_BODY = """
 </div>
 
 <script>
-var timerChecagem = null;
-
-function checarFotoCapturada() {
-    fetch('/api/checar-foto')
-        .then(r => r.json())
-        .then(res => {
-            if (res.pronto && res.foto) {
-                if (timerChecagem) clearInterval(timerChecagem);
-                var prev = document.getElementById('previewFoto');
-                var plc = document.getElementById('placeholderFoto');
-                if (prev) { prev.src = res.foto; prev.style.display = 'block'; }
-                if (plc) { plc.style.display = 'none'; }
-                document.getElementById('foto_base64_capturada').value = res.foto;
-            }
-        }).catch(err => {});
-}
-
-function abrirCamera(btn) {
-    fetch('/api/abrir-camera-android')
-        .then(r => r.json())
-        .then(data => {
-            if (data.iniciado) {
-                if (timerChecagem) clearInterval(timerChecagem);
-                timerChecagem = setInterval(checarFotoCapturada, 1000);
-            } else {
-                document.getElementById('inputArquivoFallback').click();
-            }
-        }).catch(e => { document.getElementById('inputArquivoFallback').click(); });
-}
-
-function abrirGaleria(btn) {
-    fetch('/api/abrir-galeria-android')
-        .then(r => r.json())
-        .then(data => {
-            if (data.iniciado) {
-                if (timerChecagem) clearInterval(timerChecagem);
-                timerChecagem = setInterval(checarFotoCapturada, 1000);
-            } else {
-                document.getElementById('inputArquivoFallback').click();
-            }
-        }).catch(e => { document.getElementById('inputArquivoFallback').click(); });
-}
-
-function carregarArquivoLocal(input) {
+function processarFotoEdit(input) {
     if (input.files && input.files[0]) {
-        var reader = new FileReader();
+        const file = input.files[0];
+        const reader = new FileReader();
         reader.onload = function(e) {
-            var prev = document.getElementById('previewFoto');
-            var plc = document.getElementById('placeholderFoto');
+            const prev = document.getElementById('previewEdit');
+            const plc = document.getElementById('placeholderEdit');
             if (prev) { prev.src = e.target.result; prev.style.display = 'block'; }
             if (plc) { plc.style.display = 'none'; }
-            document.getElementById('foto_base64_capturada').value = e.target.result;
+            document.getElementById('foto_base64_edit').value = e.target.result;
         };
-        reader.readAsDataURL(input.files[0]);
+        reader.readAsDataURL(file);
     }
 }
 </script>
@@ -1700,7 +1505,7 @@ RECIBO_A4_HTML = """<!DOCTYPE html>
 <body>
 
 <div class="no-print" style="background:#e0f2fe; padding:12px; margin-bottom:15px; border-radius:12px; text-align:center; display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:10px;">
-    <button type="button" id="btnImprimir" onclick="executarImpressao()" style="padding:10px 22px; font-weight:bold; background:#00639b; color:#fff; border:none; border-radius:30px; font-size:10pt; cursor:pointer; display:inline-flex; align-items:center; gap:6px; box-shadow:0 2px 6px rgba(0,99,155,0.3);">
+    <button type="button" onclick="window.print()" style="padding:10px 22px; font-weight:bold; background:#00639b; color:#fff; border:none; border-radius:30px; font-size:10pt; cursor:pointer; display:inline-flex; align-items:center; gap:6px; box-shadow:0 2px 6px rgba(0,99,155,0.3);">
         🖨️ Imprimir / Salvar PDF
     </button>
     <a href="/compartilhar-whatsapp/{{ os['id'] }}" style="padding:10px 20px; font-weight:bold; background:#25d366; color:#fff; border-radius:30px; font-size:10pt; text-decoration:none; display:inline-flex; align-items:center; gap:6px; box-shadow:0 2px 6px rgba(37,211,102,0.35);">
@@ -1710,25 +1515,6 @@ RECIBO_A4_HTML = """<!DOCTYPE html>
         ⬅ Voltar ao Painel
     </a>
 </div>
-
-<script>
-function executarImpressao() {
-    var btn = document.getElementById('btnImprimir');
-    if (btn) btn.innerHTML = '⏳ Gerando PDF...';
-    fetch('/api/imprimir/{{ os["id"] }}')
-        .then(r => r.json())
-        .then(data => {
-            if (btn) btn.innerHTML = '🖨️ Imprimir / Salvar PDF';
-            if (!data.sucesso) { window.print(); }
-        }).catch(e => {
-            if (btn) btn.innerHTML = '🖨️ Imprimir / Salvar PDF';
-            window.print();
-        });
-}
-if (window.location.search.indexOf('print=1') !== -1) {
-    setTimeout(function() { window.print(); }, 600);
-}
-</script>
 
 {% macro render_via(tipo, badge_class) %}
 <div class="receipt-via">
@@ -1878,7 +1664,7 @@ def nova_os():
     equipamento = request.form["equipamento"].strip()
     solicitante = request.form["solicitante"].strip()
     problema = request.form["problema"].strip()
-    foto_problema = request.form.get("foto_base64_capturada", "")
+    foto_problema = request.form.get("foto_problema", "").strip()
     agora = datetime.now().strftime("%d/%m/%Y %H:%M")
 
     with get_db() as db:
@@ -2116,7 +1902,7 @@ def gerar_preventiva_agora(prev_id):
   )
 
 
-# ================= USUÁRIOS & AJUSTES =================
+# ================= GESTÃO DE USUÁRIOS & CONFIGURAÇÕES =================
 @app.route("/usuarios", methods=["GET", "POST"])
 def usuarios():
   cfg = obter_configuracoes()
@@ -2255,11 +2041,11 @@ def configuracoes():
     contato = request.form.get("contato", "").strip()
     remover_logo = request.form.get("remover_logo") == "1"
     logo_url = request.form.get("logo_url", "").strip()
-    foto_capturada = request.form.get("foto_base64_capturada", "")
+    logo_base64_hidden = request.form.get("logo_base64_hidden", "")
 
     logo_base64 = "" if remover_logo else cfg["logo_base64"]
-    if foto_capturada:
-      logo_base64 = foto_capturada
+    if logo_base64_hidden:
+      logo_base64 = logo_base64_hidden
     elif logo_url:
       logo_base64 = logo_url
 
