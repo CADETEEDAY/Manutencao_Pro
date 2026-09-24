@@ -292,6 +292,7 @@ def injetar_usuario_logado():
       "usuario_logado_info": None,
       "modo_nuvem": IS_POSTGRES,
       "ultimo_id_sistema": 0,
+      "eh_admin": False,
   }
   if "usuario" in session:
     with get_db() as db:
@@ -299,6 +300,8 @@ def injetar_usuario_logado():
           "SELECT * FROM usuarios WHERE usuario = ?", (session["usuario"],)
       ).fetchone()
       info["usuario_logado_info"] = u
+      if u:
+        info["eh_admin"] = u["usuario"] == "admin" or u["nivel"] == "admin"
       max_id = db.execute(
           "SELECT COALESCE(MAX(id), 0) FROM ordens_servico"
       ).fetchone()[0]
@@ -342,7 +345,6 @@ def tratar_erro(e):
   )
 
 
-# ================= SINCRONIZAÇÃO EM TEMPO REAL COM DADOS DO CHAMADO =================
 @app.route("/api/status-sync")
 def api_status_sync():
   verificar_gerar_preventivas()
@@ -579,7 +581,6 @@ BASE_HTML = """<!DOCTYPE html>
         .m3-btn-tonal { background-color: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); border: none; border-radius: var(--md-shape-full); padding: 10px 20px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 6px; text-decoration: none; }
         .m3-btn-danger { background-color: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container); border: none; border-radius: var(--md-shape-full); padding: 6px 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; text-decoration: none; }
 
-        /* CARD DE NOTIFICAÇÃO FLUTUANTE EM TEMPO REAL */
         #toastNotificacaoOS {
             position: fixed;
             top: 18px;
@@ -618,7 +619,6 @@ BASE_HTML = """<!DOCTYPE html>
                 </div>
             </a>
 
-            <!-- BARRA DE BOTÕES COM ÍCONES -->
             <div class="d-flex align-items-center gap-2 pt-1 flex-wrap">
                 <a href="/preventivas" class="m3-header-icon-pill" title="Planos de Manutenção Preventiva">
                     <span class="material-symbols-rounded fs-5">event_repeat</span>
@@ -626,7 +626,7 @@ BASE_HTML = """<!DOCTYPE html>
                 <button type="button" id="btnSomNotif" onclick="alternarSom()" class="m3-header-icon-pill" title="Ativar/Desativar Som">
                     <span class="material-symbols-rounded fs-5" id="iconeSom">notifications_active</span>
                 </button>
-                <a href="/usuarios" class="m3-header-icon-pill" title="Gerenciar Usuários">
+                <a href="/usuarios" class="m3-header-icon-pill" title="Gerenciar Utilizadores">
                     <span class="material-symbols-rounded fs-5">manage_accounts</span>
                 </a>
                 <a href="/configuracoes" class="m3-header-icon-pill" title="Configurações">
@@ -639,7 +639,6 @@ BASE_HTML = """<!DOCTYPE html>
         </div>
     </header>
 
-    <!-- NOTIFICAÇÃO FLUTUANTE EM TEMPO REAL COM DADOS DO CHAMADO -->
     <div id="toastNotificacaoOS" class="p-3">
         <div class="d-flex align-items-start gap-3">
             <div style="width: 44px; height: 44px; background: #ffe08b; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
@@ -682,7 +681,6 @@ BASE_HTML = """<!DOCTYPE html>
         return audioCtx;
     }
 
-    // Solicita permissão para Notificações do Sistema Operacional
     function solicitarPermissaoNotificacao() {
         if ("Notification" in window && Notification.permission === "default") {
             Notification.requestPermission();
@@ -722,7 +720,6 @@ BASE_HTML = """<!DOCTYPE html>
             const ctx = getAudioContext();
             const now = ctx.currentTime;
 
-            // Tom 1 (D5 - 587Hz)
             const osc1 = ctx.createOscillator();
             const gain1 = ctx.createGain();
             osc1.type = 'sine';
@@ -734,7 +731,6 @@ BASE_HTML = """<!DOCTYPE html>
             osc1.start(now);
             osc1.stop(now + 0.4);
 
-            // Tom 2 (A5 - 880Hz)
             const osc2 = ctx.createOscillator();
             const gain2 = ctx.createGain();
             osc2.type = 'sine';
@@ -746,7 +742,6 @@ BASE_HTML = """<!DOCTYPE html>
             osc2.start(now + 0.15);
             osc2.stop(now + 0.9);
 
-            // Vibração intensa no celular
             if ('vibrate' in navigator) {
                 navigator.vibrate([300, 150, 300, 150, 450]);
             }
@@ -756,14 +751,12 @@ BASE_HTML = """<!DOCTYPE html>
     }
 
     function dispararAlertaNovaOS(chamado) {
-        // 1. Toca som e vibra
         tocarSomNotificacao();
 
-        // 2. Dispara Notificação do Sistema (funciona com tela minimizada ou no navegador)
         if ("Notification" in window && Notification.permission === "granted") {
             try {
                 const titulo = "🚨 Nova Requisição de Manutenção!";
-                const corpo = `OS #${String(chamado.id).padStart(5, '0')}: ${chamado.equipamento}\nSolicitante: ${chamado.solicitante}`;
+                const corpo = `OS #${String(chamado.id).padStart(5, '0')}: ${chamado.equipamento}\\nSolicitante: ${chamado.solicitante}`;
                 new Notification(titulo, {
                     body: corpo,
                     icon: "https://cdn-icons-png.flaticon.com/512/1055/1055672.png"
@@ -771,7 +764,6 @@ BASE_HTML = """<!DOCTYPE html>
             } catch(e) {}
         }
 
-        // 3. Exibe Toast flutuante no topo do app
         const toast = document.getElementById('toastNotificacaoOS');
         if (toast) {
             document.getElementById('notifEquipamento').innerText = `OS #${String(chamado.id).padStart(5, '0')} • ${chamado.equipamento}`;
@@ -785,7 +777,6 @@ BASE_HTML = """<!DOCTYPE html>
         if (toast) toast.style.display = 'none';
     }
 
-    // Monitoramento contínuo em tempo real a cada 4 segundos
     setInterval(function() {
         fetch('/api/status-sync')
             .then(r => r.json())
@@ -795,7 +786,6 @@ BASE_HTML = """<!DOCTYPE html>
                     if (data.ultimo_chamado) {
                         dispararAlertaNovaOS(data.ultimo_chamado);
                     }
-                    // Se estiver na tela inicial, atualiza a tabela após 3 segundos
                     if (window.location.pathname === '/') {
                         setTimeout(() => { window.location.reload(); }, 3500);
                     }
@@ -1013,7 +1003,6 @@ NOVA_BODY = """
                     <textarea name="problema" rows="3" class="form-control m3-input" placeholder="Descreva ruídos, vazamento, falhas ou defeito visual..." required></textarea>
                 </div>
 
-                <!-- SEÇÃO VISÍVEL DE FOTO DO LOCAL / DEFEITO -->
                 <div class="mb-4 p-3 bg-light rounded-4 border">
                     <label class="form-label small fw-bold text-uppercase text-secondary d-block">
                         <span class="material-symbols-rounded fs-5 align-middle text-primary">photo_camera</span>
@@ -1427,17 +1416,29 @@ function processarLogo(input) {
 </script>
 """
 
+# ================= TELA DE UTILIZADORES COM BLOQUEIO PARA NÃO-ADMIN =================
 USUARIOS_BODY = """
 <div class="row justify-content-center">
     <div class="col-12 col-lg-10">
+        {% if msg_sucesso %}
+            <div class="alert alert-success py-2 px-3 small rounded-3 mb-3 border-0 d-flex align-items-center gap-2">
+                <span class="material-symbols-rounded fs-5">check_circle</span>
+                <span>{{ msg_sucesso }}</span>
+            </div>
+        {% endif %}
+        {% if msg_erro %}
+            <div class="alert alert-danger py-2 px-3 small rounded-3 mb-3 border-0 d-flex align-items-center gap-2">
+                <span class="material-symbols-rounded fs-5">error</span>
+                <span>{{ msg_erro }}</span>
+            </div>
+        {% endif %}
+
+        {% if eh_admin %}
         <div class="m3-card p-4 p-md-5 mb-4">
             <div class="d-flex align-items-center gap-3 mb-4">
                 <div class="m3-icon-badge" style="background: var(--md-sys-color-primary-container);"><span class="material-symbols-rounded fs-2 text-primary">person_add</span></div>
-                <div><h4 class="fw-bold mb-0">Cadastrar Administrador</h4><span class="text-muted small">Adicione um novo usuário com foto 3x4 de identificação</span></div>
+                <div><h4 class="fw-bold mb-0">Cadastrar Novo Utilizador</h4><span class="text-muted small">Apenas Administradores podem criar novos acessos ao sistema</span></div>
             </div>
-
-            {% if msg_sucesso %}<div class="alert alert-success py-2 px-3 small rounded-3 mb-3 border-0 d-flex align-items-center gap-2"><span class="material-symbols-rounded fs-5">check_circle</span><span>{{ msg_sucesso }}</span></div>{% endif %}
-            {% if msg_erro %}<div class="alert alert-danger py-2 px-3 small rounded-3 mb-3 border-0 d-flex align-items-center gap-2"><span class="material-symbols-rounded fs-5">error</span><span>{{ msg_erro }}</span></div>{% endif %}
 
             <form method="POST" enctype="multipart/form-data">
                 <input type="hidden" name="foto_base64_capturada" id="foto_base64_user" value="">
@@ -1467,20 +1468,43 @@ USUARIOS_BODY = """
 
                     <div class="col-12 col-md-8">
                         <div class="mb-3"><label class="form-label small fw-bold text-uppercase text-secondary">Nome Completo:</label><input type="text" name="nome" class="form-control m3-input" placeholder="Ex: Robson Cadete" required></div>
-                        <div class="mb-3"><label class="form-label small fw-bold text-uppercase text-secondary">Login de Acesso:</label><input type="text" name="usuario" class="form-control m3-input" placeholder="Ex: robson.cadete" required></div>
+                        <div class="row g-3 mb-3">
+                            <div class="col-12 col-md-6">
+                                <label class="form-label small fw-bold text-uppercase text-secondary">Login de Acesso:</label>
+                                <input type="text" name="usuario" class="form-control m3-input" placeholder="Ex: robson.cadete" required>
+                            </div>
+                            <div class="col-12 col-md-6">
+                                <label class="form-label small fw-bold text-uppercase text-secondary">Nível de Acesso:</label>
+                                <select name="nivel" class="form-select m3-input">
+                                    <option value="tecnico" selected>Técnico / Operador</option>
+                                    <option value="admin">Administrador Geral</option>
+                                </select>
+                            </div>
+                        </div>
                         <div class="mb-2"><label class="form-label small fw-bold text-uppercase text-secondary">Senha de Acesso:</label><input type="password" name="senha" class="form-control m3-input" placeholder="Digite uma senha segura" required></div>
                     </div>
                 </div>
 
                 <div class="d-flex justify-content-between align-items-center pt-3 border-top">
                     <a href="/" class="m3-btn-tonal">Voltar</a>
-                    <button type="submit" class="m3-btn-filled"><span class="material-symbols-rounded">how_to_reg</span> Gravar Administrador</button>
+                    <button type="submit" class="m3-btn-filled"><span class="material-symbols-rounded">how_to_reg</span> Gravar Utilizador</button>
                 </div>
             </form>
         </div>
+        {% else %}
+        <div class="m3-card p-4 mb-4 border-0 shadow-sm" style="background: #e0edff; border-radius: var(--md-shape-lg);">
+            <div class="d-flex align-items-center gap-3">
+                <span class="material-symbols-rounded fs-1 text-primary">admin_panel_settings</span>
+                <div>
+                    <h6 class="fw-bold mb-1 text-dark">Área Restrita aos Administradores</h6>
+                    <span class="small text-secondary">Apenas utilizadores administradores têm permissão para cadastrar, alterar privilégios ou remover outros utilizadores do sistema.</span>
+                </div>
+            </div>
+        </div>
+        {% endif %}
 
         <div class="m3-card overflow-hidden">
-            <div class="p-3 bg-light border-bottom"><h6 class="fw-bold mb-0 text-dark"><span class="material-symbols-rounded fs-5 align-middle">group</span> Administradores Ativos</h6></div>
+            <div class="p-3 bg-light border-bottom"><h6 class="fw-bold mb-0 text-dark"><span class="material-symbols-rounded fs-5 align-middle">group</span> Utilizadores do Sistema</h6></div>
             <div class="table-responsive">
                 <table class="table table-hover align-middle mb-0">
                     <thead style="background: var(--md-sys-color-surface-container-low);">
@@ -1504,14 +1528,22 @@ USUARIOS_BODY = """
                             </td>
                             <td class="fw-bold text-dark">{{ u['nome'] }}</td>
                             <td><code>{{ u['usuario'] }}</code></td>
-                            <td><span class="badge bg-secondary">Administrador</span></td>
+                            <td>
+                                {% if u['nivel'] == 'admin' %}
+                                    <span class="badge bg-primary rounded-pill px-3 py-1">Administrador</span>
+                                {% else %}
+                                    <span class="badge bg-secondary rounded-pill px-3 py-1">Técnico</span>
+                                {% endif %}
+                            </td>
                             <td class="text-end pe-4">
                                 <div class="d-inline-flex align-items-center gap-1">
-                                    <a href="/editar-usuario/{{ u['id'] }}" class="m3-btn-tonal py-1 px-3" title="Editar dados e foto">
-                                        <span class="material-symbols-rounded fs-6">edit</span> Editar
-                                    </a>
+                                    {% if eh_admin or u['usuario'] == usuario_logado %}
+                                        <a href="/editar-usuario/{{ u['id'] }}" class="m3-btn-tonal py-1 px-3" title="Editar dados e foto">
+                                            <span class="material-symbols-rounded fs-6">edit</span> Editar
+                                        </a>
+                                    {% endif %}
 
-                                    {% if u['usuario'] != 'admin' and u['usuario'] != usuario_logado %}
+                                    {% if eh_admin and u['usuario'] != 'admin' and u['usuario'] != usuario_logado %}
                                         <a href="/excluir-usuario/{{ u['id'] }}" class="m3-btn-danger" onclick="return confirm('Deseja excluir o usuário {{ u['usuario'] }}?');" title="Remover usuário">
                                             <span class="material-symbols-rounded fs-6">delete</span>
                                         </a>
@@ -1551,7 +1583,7 @@ EDITAR_USUARIO_BODY = """
         <div class="m3-card p-4 p-md-5 mb-4">
             <div class="d-flex align-items-center gap-3 mb-4">
                 <div class="m3-icon-badge" style="background: var(--md-sys-color-secondary-container);"><span class="material-symbols-rounded fs-2 text-primary">edit_square</span></div>
-                <div><h4 class="fw-bold mb-0">Editar Usuário</h4><span class="text-muted small">Atualize o nome, senha ou foto 3x4</span></div>
+                <div><h4 class="fw-bold mb-0">Editar Utilizador</h4><span class="text-muted small">Atualize o nome, senha ou foto 3x4</span></div>
             </div>
 
             {% if msg_erro %}<div class="alert alert-danger py-2 px-3 small rounded-3 mb-3 border-0 d-flex align-items-center gap-2"><span class="material-symbols-rounded fs-5">error</span><span>{{ msg_erro }}</span></div>{% endif %}
@@ -1595,6 +1627,17 @@ EDITAR_USUARIO_BODY = """
                             <label class="form-label small fw-bold text-uppercase text-secondary">Login de Acesso:</label>
                             <input type="text" name="usuario" class="form-control m3-input" value="{{ u['usuario'] }}" required>
                         </div>
+
+                        {% if eh_admin and u['usuario'] != 'admin' %}
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold text-uppercase text-secondary">Nível de Acesso:</label>
+                            <select name="nivel" class="form-select m3-input">
+                                <option value="tecnico" {% if u['nivel'] != 'admin' %}selected{% endif %}>Técnico / Operador</option>
+                                <option value="admin" {% if u['nivel'] == 'admin' %}selected{% endif %}>Administrador Geral</option>
+                            </select>
+                        </div>
+                        {% endif %}
+
                         <div class="mb-2">
                             <label class="form-label small fw-bold text-uppercase text-secondary">Nova Senha (Opcional):</label>
                             <input type="password" name="senha" class="form-control m3-input" placeholder="Deixe em branco para manter a atual">
@@ -1662,17 +1705,14 @@ RECIBO_A4_HTML = """<!DOCTYPE html>
 <body>
 
 <div class="no-print" style="background:#e0f2fe; padding:12px; margin-bottom:15px; border-radius:12px; text-align:center; display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:10px;">
-    <!-- IMPRIMIR NO APK OU NAVEGADOR -->
     <a href="/acao/imprimir/{{ os['id'] }}" onclick="executarImpressao(event)" style="padding:10px 22px; font-weight:bold; background:#00639b; color:#fff; border-radius:30px; font-size:10pt; text-decoration:none; display:inline-flex; align-items:center; gap:6px; box-shadow:0 2px 6px rgba(0,99,155,0.3); cursor:pointer;">
         🖨️ Imprimir / Salvar PDF
     </a>
     
-    <!-- ABRIR NO CHROME NATIVO -->
     <a href="/recibo/{{ os['id'] }}?abrir-chrome=1&print=1" target="_blank" style="padding:10px 18px; font-weight:bold; background:#0284c7; color:#fff; border-radius:30px; font-size:10pt; text-decoration:none; display:inline-flex; align-items:center; gap:6px;">
         🌐 Abrir no Chrome
     </a>
     
-    <!-- WHATSAPP DIRETO -->
     <a href="/compartilhar-whatsapp/{{ os['id'] }}" style="padding:10px 20px; font-weight:bold; background:#25d366; color:#fff; border-radius:30px; font-size:10pt; text-decoration:none; display:inline-flex; align-items:center; gap:6px; box-shadow:0 2px 6px rgba(37,211,102,0.35);">
         💬 Enviar no WhatsApp
     </a>
@@ -1807,6 +1847,7 @@ def login():
     if user_row and check_password_hash(user_row["senha"], senha):
       session["usuario"] = user_row["usuario"]
       session["nome"] = user_row["nome"]
+      session["nivel"] = user_row["nivel"] or "admin"
       return redirect(url_for("index"))
     else:
       erro = "Usuário ou senha inválidos. Tente novamente."
@@ -2090,42 +2131,68 @@ def gerar_preventiva_agora(prev_id):
   )
 
 
-# ================= GESTÃO DE USUÁRIOS & CONFIGURAÇÕES =================
+# ================= GESTÃO DE UTILIZADORES COM RESTRIÇÃO DE ADMINISTRADOR =================
 @app.route("/usuarios", methods=["GET", "POST"])
 def usuarios():
   cfg = obter_configuracoes()
   msg_sucesso = None
   msg_erro = None
 
-  if request.method == "POST":
-    nome = request.form["nome"].strip()
-    novo_usuario = request.form["usuario"].strip().lower()
-    senha = request.form["senha"].strip()
-    foto_capturada = request.form.get("foto_base64_capturada", "")
+  usuario_sessao = session.get("usuario")
+  with get_db() as db:
+    user_logado = db.execute(
+        "SELECT * FROM usuarios WHERE usuario = ?", (usuario_sessao,)
+    ).fetchone()
 
-    if not nome or not novo_usuario or not senha:
-      msg_erro = "Preencha todos os campos obrigatórios."
+  eh_admin = (
+      user_logado
+      and (user_logado["usuario"] == "admin" or user_logado["nivel"] == "admin")
+  ) or (session.get("usuario") == "admin")
+
+  if request.method == "POST":
+    if not eh_admin:
+      msg_erro = (
+          "Acesso negado: apenas Administradores têm permissão para cadastrar"
+          " novos utilizadores."
+      )
     else:
-      with get_db() as db:
-        existe = db.execute(
-            "SELECT id FROM usuarios WHERE usuario = ?", (novo_usuario,)
-        ).fetchone()
-        if existe:
-          msg_erro = f"O usuário '{novo_usuario}' já existe no sistema."
-        else:
-          db.execute(
-              """
-                        INSERT INTO usuarios (usuario, senha, nome, nivel, foto_base64)
-                        VALUES (?, ?, ?, 'admin', ?)
-                    """,
-              (
-                  novo_usuario,
-                  generate_password_hash(senha),
-                  nome,
-                  foto_capturada,
-              ),
-          )
-          msg_sucesso = f"Usuário '{nome}' cadastrado com sucesso!"
+      nome = request.form["nome"].strip()
+      novo_usuario = request.form["usuario"].strip().lower()
+      senha = request.form["senha"].strip()
+      nivel = request.form.get("nivel", "tecnico").strip().lower()
+      foto_capturada = request.form.get("foto_base64_capturada", "")
+
+      if not nome or not novo_usuario or not senha:
+        msg_erro = "Preencha todos os campos obrigatórios."
+      else:
+        with get_db() as db:
+          existe = db.execute(
+              "SELECT id FROM usuarios WHERE usuario = ?", (novo_usuario,)
+          ).fetchone()
+          if existe:
+            msg_erro = f"O utilizador '{novo_usuario}' já existe no sistema."
+          else:
+            db.execute(
+                """
+                            INSERT INTO usuarios (usuario, senha, nome, nivel, foto_base64)
+                            VALUES (?, ?, ?, ?, ?)
+                        """,
+                (
+                    novo_usuario,
+                    generate_password_hash(senha),
+                    nome,
+                    nivel,
+                    foto_capturada,
+                ),
+            )
+            tipo_label = (
+                "Administrador Geral"
+                if nivel == "admin"
+                else "Técnico / Operador"
+            )
+            msg_sucesso = (
+                f"Utilizador '{nome}' cadastrado com sucesso como {tipo_label}!"
+            )
 
   with get_db() as db:
     lista_usuarios = db.execute(
@@ -2138,6 +2205,7 @@ def usuarios():
       cfg=cfg,
       lista_usuarios=lista_usuarios,
       usuario_logado=session.get("usuario"),
+      eh_admin=eh_admin,
       msg_sucesso=msg_sucesso,
       msg_erro=msg_erro,
   )
@@ -2150,9 +2218,25 @@ def editar_usuario(user_id):
     usuario_alvo = db.execute(
         "SELECT * FROM usuarios WHERE id = ?", (user_id,)
     ).fetchone()
+    user_logado = db.execute(
+        "SELECT * FROM usuarios WHERE usuario = ?", (session.get("usuario"),)
+    ).fetchone()
 
   if not usuario_alvo:
-    return "Usuário não encontrado", 404
+    return "Utilizador não encontrado", 404
+
+  eh_admin = (
+      user_logado
+      and (user_logado["usuario"] == "admin" or user_logado["nivel"] == "admin")
+  ) or (session.get("usuario") == "admin")
+  eh_proprio_usuario = session.get("usuario") == usuario_alvo["usuario"]
+
+  if not eh_admin and not eh_proprio_usuario:
+    return (
+        "Acesso negado: apenas Administradores podem editar dados de outros"
+        " utilizadores.",
+        403,
+    )
 
   msg_erro = None
 
@@ -2162,6 +2246,11 @@ def editar_usuario(user_id):
     nova_senha = request.form.get("senha", "").strip()
     remover_foto = request.form.get("remover_foto") == "1"
     foto_capturada = request.form.get("foto_base64_capturada", "")
+
+    if eh_admin:
+      nivel = request.form.get("nivel", usuario_alvo["nivel"] or "tecnico")
+    else:
+      nivel = usuario_alvo["nivel"] or "tecnico"
 
     foto_base64 = "" if remover_foto else (usuario_alvo["foto_base64"] or "")
     if foto_capturada:
@@ -2176,46 +2265,74 @@ def editar_usuario(user_id):
             (login_usuario, user_id),
         ).fetchone()
         if existe:
-          msg_erro = f"O login '{login_usuario}' já pertence a outro usuário."
+          msg_erro = (
+              f"O login '{login_usuario}' já pertence a outro utilizador."
+          )
         else:
           if nova_senha:
             senha_hash = generate_password_hash(nova_senha)
             db.execute(
                 """
                             UPDATE usuarios 
-                            SET nome = ?, usuario = ?, senha = ?, foto_base64 = ?
+                            SET nome = ?, usuario = ?, senha = ?, nivel = ?, foto_base64 = ?
                             WHERE id = ?
                         """,
-                (nome, login_usuario, senha_hash, foto_base64, user_id),
+                (nome, login_usuario, senha_hash, nivel, foto_base64, user_id),
             )
           else:
             db.execute(
                 """
                             UPDATE usuarios 
-                            SET nome = ?, usuario = ?, foto_base64 = ?
+                            SET nome = ?, usuario = ?, nivel = ?, foto_base64 = ?
                             WHERE id = ?
                         """,
-                (nome, login_usuario, foto_base64, user_id),
+                (nome, login_usuario, nivel, foto_base64, user_id),
             )
 
           if session.get("usuario") == usuario_alvo["usuario"]:
             session["usuario"] = login_usuario
             session["nome"] = nome
+            session["nivel"] = nivel
 
           return redirect(url_for("usuarios"))
 
   return render_template_string(
-      EDITAR_USUARIO_HTML, cfg=cfg, u=usuario_alvo, msg_erro=msg_erro
+      EDITAR_USUARIO_HTML,
+      cfg=cfg,
+      u=usuario_alvo,
+      eh_admin=eh_admin,
+      msg_erro=msg_erro,
   )
 
 
 @app.route("/excluir-usuario/<int:user_id>")
 def excluir_usuario(user_id):
   with get_db() as db:
+    user_logado = db.execute(
+        "SELECT * FROM usuarios WHERE usuario = ?", (session.get("usuario"),)
+    ).fetchone()
+    eh_admin = (
+        user_logado
+        and (
+            user_logado["usuario"] == "admin"
+            or user_logado["nivel"] == "admin"
+        )
+    ) or (session.get("usuario") == "admin")
+
+    if not eh_admin:
+      return (
+          "Acesso negado: apenas Administradores podem excluir utilizadores.",
+          403,
+      )
+
     user = db.execute(
         "SELECT usuario FROM usuarios WHERE id = ?", (user_id,)
     ).fetchone()
-    if user and user["usuario"] != "admin" and user["usuario"] != session.get("usuario"):
+    if (
+        user
+        and user["usuario"] != "admin"
+        and user["usuario"] != session.get("usuario")
+    ):
       db.execute("DELETE FROM usuarios WHERE id = ?", (user_id,))
   return redirect(url_for("usuarios"))
 
