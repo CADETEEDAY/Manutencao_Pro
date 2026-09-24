@@ -148,7 +148,7 @@ def init_db():
                     usuario TEXT UNIQUE NOT NULL,
                     senha TEXT NOT NULL,
                     nome TEXT NOT NULL,
-                    nivel TEXT DEFAULT 'admin',
+                    nivel TEXT DEFAULT 'comum',
                     foto_base64 TEXT
                 );
             """)
@@ -162,6 +162,8 @@ def init_db():
                 """,
             (senha_hash,),
         )
+      # Converte todos os utilizadores que não sejam o admin para 'comum'
+      db.execute("UPDATE usuarios SET nivel = 'comum' WHERE usuario != 'admin';")
     else:
       db.execute("""
                 CREATE TABLE IF NOT EXISTS ordens_servico (
@@ -214,7 +216,7 @@ def init_db():
                     usuario TEXT UNIQUE NOT NULL,
                     senha TEXT NOT NULL,
                     nome TEXT NOT NULL,
-                    nivel TEXT DEFAULT 'admin',
+                    nivel TEXT DEFAULT 'comum',
                     foto_base64 TEXT
                 );
             """)
@@ -233,6 +235,8 @@ def init_db():
                 """,
             (senha_hash,),
         )
+      # Converte todos os utilizadores que não sejam o admin para 'comum'
+      db.execute("UPDATE usuarios SET nivel = 'comum' WHERE usuario != 'admin';")
 
 
 init_db()
@@ -345,6 +349,7 @@ def tratar_erro(e):
   )
 
 
+# ================= SINCRONIZAÇÃO EM TEMPO REAL =================
 @app.route("/api/status-sync")
 def api_status_sync():
   verificar_gerar_preventivas()
@@ -430,7 +435,7 @@ _Comprovante emitido via Sistema de Manutenção_"""
   return redirect(f"https://api.whatsapp.com/send?text={texto_url}")
 
 
-# ================= TEMPLATES (MATERIAL 3) =================
+# ================= TEMPLATES VISUAIS =================
 LOGIN_HTML = """<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -626,7 +631,7 @@ BASE_HTML = """<!DOCTYPE html>
                 <button type="button" id="btnSomNotif" onclick="alternarSom()" class="m3-header-icon-pill" title="Ativar/Desativar Som">
                     <span class="material-symbols-rounded fs-5" id="iconeSom">notifications_active</span>
                 </button>
-                <a href="/usuarios" class="m3-header-icon-pill" title="Gerenciar Utilizadores">
+                <a href="/usuarios" class="m3-header-icon-pill" title="Gerenciar Usuários">
                     <span class="material-symbols-rounded fs-5">manage_accounts</span>
                 </a>
                 <a href="/configuracoes" class="m3-header-icon-pill" title="Configurações">
@@ -1416,7 +1421,7 @@ function processarLogo(input) {
 </script>
 """
 
-# ================= TELA DE UTILIZADORES COM BLOQUEIO PARA NÃO-ADMIN =================
+# ================= TELA DE UTILIZADORES COM RESTRIÇÃO =================
 USUARIOS_BODY = """
 <div class="row justify-content-center">
     <div class="col-12 col-lg-10">
@@ -1437,7 +1442,7 @@ USUARIOS_BODY = """
         <div class="m3-card p-4 p-md-5 mb-4">
             <div class="d-flex align-items-center gap-3 mb-4">
                 <div class="m3-icon-badge" style="background: var(--md-sys-color-primary-container);"><span class="material-symbols-rounded fs-2 text-primary">person_add</span></div>
-                <div><h4 class="fw-bold mb-0">Cadastrar Novo Utilizador</h4><span class="text-muted small">Apenas Administradores podem criar novos acessos ao sistema</span></div>
+                <div><h4 class="fw-bold mb-0">Cadastrar Usuário</h4><span class="text-muted small">Exclusivo do Administrador</span></div>
             </div>
 
             <form method="POST" enctype="multipart/form-data">
@@ -1474,10 +1479,10 @@ USUARIOS_BODY = """
                                 <input type="text" name="usuario" class="form-control m3-input" placeholder="Ex: robson.cadete" required>
                             </div>
                             <div class="col-12 col-md-6">
-                                <label class="form-label small fw-bold text-uppercase text-secondary">Nível de Acesso:</label>
+                                <label class="form-label small fw-bold text-uppercase text-secondary">Tipo de Perfil:</label>
                                 <select name="nivel" class="form-select m3-input">
-                                    <option value="tecnico" selected>Técnico / Operador</option>
-                                    <option value="admin">Administrador Geral</option>
+                                    <option value="comum" selected>Usuário Comum</option>
+                                    <option value="admin">Administrador</option>
                                 </select>
                             </div>
                         </div>
@@ -1487,7 +1492,7 @@ USUARIOS_BODY = """
 
                 <div class="d-flex justify-content-between align-items-center pt-3 border-top">
                     <a href="/" class="m3-btn-tonal">Voltar</a>
-                    <button type="submit" class="m3-btn-filled"><span class="material-symbols-rounded">how_to_reg</span> Gravar Utilizador</button>
+                    <button type="submit" class="m3-btn-filled"><span class="material-symbols-rounded">how_to_reg</span> Salvar Usuário</button>
                 </div>
             </form>
         </div>
@@ -1496,15 +1501,15 @@ USUARIOS_BODY = """
             <div class="d-flex align-items-center gap-3">
                 <span class="material-symbols-rounded fs-1 text-primary">admin_panel_settings</span>
                 <div>
-                    <h6 class="fw-bold mb-1 text-dark">Área Restrita aos Administradores</h6>
-                    <span class="small text-secondary">Apenas utilizadores administradores têm permissão para cadastrar, alterar privilégios ou remover outros utilizadores do sistema.</span>
+                    <h6 class="fw-bold mb-1 text-dark">Área Restrita ao Administrador</h6>
+                    <span class="small text-secondary">Apenas o Administrador pode adicionar novos usuários e excluir contas do sistema.</span>
                 </div>
             </div>
         </div>
         {% endif %}
 
         <div class="m3-card overflow-hidden">
-            <div class="p-3 bg-light border-bottom"><h6 class="fw-bold mb-0 text-dark"><span class="material-symbols-rounded fs-5 align-middle">group</span> Utilizadores do Sistema</h6></div>
+            <div class="p-3 bg-light border-bottom"><h6 class="fw-bold mb-0 text-dark"><span class="material-symbols-rounded fs-5 align-middle">group</span> Usuários Cadastrados</h6></div>
             <div class="table-responsive">
                 <table class="table table-hover align-middle mb-0">
                     <thead style="background: var(--md-sys-color-surface-container-low);">
@@ -1512,7 +1517,7 @@ USUARIOS_BODY = """
                             <th class="ps-4 py-3" style="width: 70px;">Foto</th>
                             <th>Nome</th>
                             <th>Login</th>
-                            <th>Nível</th>
+                            <th>Perfil</th>
                             <th class="text-end pe-4">Ações</th>
                         </tr>
                     </thead>
@@ -1529,10 +1534,10 @@ USUARIOS_BODY = """
                             <td class="fw-bold text-dark">{{ u['nome'] }}</td>
                             <td><code>{{ u['usuario'] }}</code></td>
                             <td>
-                                {% if u['nivel'] == 'admin' %}
+                                {% if u['usuario'] == 'admin' or u['nivel'] == 'admin' %}
                                     <span class="badge bg-primary rounded-pill px-3 py-1">Administrador</span>
                                 {% else %}
-                                    <span class="badge bg-secondary rounded-pill px-3 py-1">Técnico</span>
+                                    <span class="badge bg-secondary rounded-pill px-3 py-1">Usuário Comum</span>
                                 {% endif %}
                             </td>
                             <td class="text-end pe-4">
@@ -1544,7 +1549,7 @@ USUARIOS_BODY = """
                                     {% endif %}
 
                                     {% if eh_admin and u['usuario'] != 'admin' and u['usuario'] != usuario_logado %}
-                                        <a href="/excluir-usuario/{{ u['id'] }}" class="m3-btn-danger" onclick="return confirm('Deseja excluir o usuário {{ u['usuario'] }}?');" title="Remover usuário">
+                                        <a href="/excluir-usuario/{{ u['id'] }}" class="m3-btn-danger" onclick="return confirm('Deseja excluir o usuário {{ u['usuario'] }}?');" title="Excluir Usuário">
                                             <span class="material-symbols-rounded fs-6">delete</span>
                                         </a>
                                     {% endif %}
@@ -1583,7 +1588,7 @@ EDITAR_USUARIO_BODY = """
         <div class="m3-card p-4 p-md-5 mb-4">
             <div class="d-flex align-items-center gap-3 mb-4">
                 <div class="m3-icon-badge" style="background: var(--md-sys-color-secondary-container);"><span class="material-symbols-rounded fs-2 text-primary">edit_square</span></div>
-                <div><h4 class="fw-bold mb-0">Editar Utilizador</h4><span class="text-muted small">Atualize o nome, senha ou foto 3x4</span></div>
+                <div><h4 class="fw-bold mb-0">Editar Usuário</h4><span class="text-muted small">Atualize o nome, senha ou foto 3x4</span></div>
             </div>
 
             {% if msg_erro %}<div class="alert alert-danger py-2 px-3 small rounded-3 mb-3 border-0 d-flex align-items-center gap-2"><span class="material-symbols-rounded fs-5">error</span><span>{{ msg_erro }}</span></div>{% endif %}
@@ -1630,10 +1635,10 @@ EDITAR_USUARIO_BODY = """
 
                         {% if eh_admin and u['usuario'] != 'admin' %}
                         <div class="mb-3">
-                            <label class="form-label small fw-bold text-uppercase text-secondary">Nível de Acesso:</label>
+                            <label class="form-label small fw-bold text-uppercase text-secondary">Perfil do Usuário:</label>
                             <select name="nivel" class="form-select m3-input">
-                                <option value="tecnico" {% if u['nivel'] != 'admin' %}selected{% endif %}>Técnico / Operador</option>
-                                <option value="admin" {% if u['nivel'] == 'admin' %}selected{% endif %}>Administrador Geral</option>
+                                <option value="comum" {% if u['nivel'] != 'admin' %}selected{% endif %}>Usuário Comum</option>
+                                <option value="admin" {% if u['nivel'] == 'admin' %}selected{% endif %}>Administrador</option>
                             </select>
                         </div>
                         {% endif %}
@@ -1847,7 +1852,7 @@ def login():
     if user_row and check_password_hash(user_row["senha"], senha):
       session["usuario"] = user_row["usuario"]
       session["nome"] = user_row["nome"]
-      session["nivel"] = user_row["nivel"] or "admin"
+      session["nivel"] = user_row["nivel"] or "comum"
       return redirect(url_for("index"))
     else:
       erro = "Usuário ou senha inválidos. Tente novamente."
@@ -2131,7 +2136,7 @@ def gerar_preventiva_agora(prev_id):
   )
 
 
-# ================= GESTÃO DE UTILIZADORES COM RESTRIÇÃO DE ADMINISTRADOR =================
+# ================= GESTÃO DE USUÁRIOS: EXCLUSIVO ADMINISTRADOR =================
 @app.route("/usuarios", methods=["GET", "POST"])
 def usuarios():
   cfg = obter_configuracoes()
@@ -2152,14 +2157,13 @@ def usuarios():
   if request.method == "POST":
     if not eh_admin:
       msg_erro = (
-          "Acesso negado: apenas Administradores têm permissão para cadastrar"
-          " novos utilizadores."
+          "Acesso negado: apenas o Administrador pode adicionar novos usuários."
       )
     else:
       nome = request.form["nome"].strip()
       novo_usuario = request.form["usuario"].strip().lower()
       senha = request.form["senha"].strip()
-      nivel = request.form.get("nivel", "tecnico").strip().lower()
+      nivel = request.form.get("nivel", "comum").strip().lower()
       foto_capturada = request.form.get("foto_base64_capturada", "")
 
       if not nome or not novo_usuario or not senha:
@@ -2170,7 +2174,7 @@ def usuarios():
               "SELECT id FROM usuarios WHERE usuario = ?", (novo_usuario,)
           ).fetchone()
           if existe:
-            msg_erro = f"O utilizador '{novo_usuario}' já existe no sistema."
+            msg_erro = f"O usuário '{novo_usuario}' já existe no sistema."
           else:
             db.execute(
                 """
@@ -2186,12 +2190,10 @@ def usuarios():
                 ),
             )
             tipo_label = (
-                "Administrador Geral"
-                if nivel == "admin"
-                else "Técnico / Operador"
+                "Administrador" if nivel == "admin" else "Usuário Comum"
             )
             msg_sucesso = (
-                f"Utilizador '{nome}' cadastrado com sucesso como {tipo_label}!"
+                f"Usuário '{nome}' cadastrado com sucesso como {tipo_label}!"
             )
 
   with get_db() as db:
@@ -2223,7 +2225,7 @@ def editar_usuario(user_id):
     ).fetchone()
 
   if not usuario_alvo:
-    return "Utilizador não encontrado", 404
+    return "Usuário não encontrado", 404
 
   eh_admin = (
       user_logado
@@ -2233,8 +2235,7 @@ def editar_usuario(user_id):
 
   if not eh_admin and not eh_proprio_usuario:
     return (
-        "Acesso negado: apenas Administradores podem editar dados de outros"
-        " utilizadores.",
+        "Acesso negado: apenas o Administrador pode editar outros usuários.",
         403,
     )
 
@@ -2247,10 +2248,11 @@ def editar_usuario(user_id):
     remover_foto = request.form.get("remover_foto") == "1"
     foto_capturada = request.form.get("foto_base64_capturada", "")
 
+    # Usuário comum não pode mudar seu próprio nível para admin
     if eh_admin:
-      nivel = request.form.get("nivel", usuario_alvo["nivel"] or "tecnico")
+      nivel = request.form.get("nivel", usuario_alvo["nivel"] or "comum")
     else:
-      nivel = usuario_alvo["nivel"] or "tecnico"
+      nivel = usuario_alvo["nivel"] or "comum"
 
     foto_base64 = "" if remover_foto else (usuario_alvo["foto_base64"] or "")
     if foto_capturada:
@@ -2265,9 +2267,7 @@ def editar_usuario(user_id):
             (login_usuario, user_id),
         ).fetchone()
         if existe:
-          msg_erro = (
-              f"O login '{login_usuario}' já pertence a outro utilizador."
-          )
+          msg_erro = f"O login '{login_usuario}' já pertence a outro usuário."
         else:
           if nova_senha:
             senha_hash = generate_password_hash(nova_senha)
@@ -2321,7 +2321,8 @@ def excluir_usuario(user_id):
 
     if not eh_admin:
       return (
-          "Acesso negado: apenas Administradores podem excluir utilizadores.",
+          "Acesso negado: apenas o Administrador pode excluir usuários do"
+          " sistema.",
           403,
       )
 
