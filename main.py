@@ -5,9 +5,7 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
 from kivy.utils import platform
 
-# =========================================================================
-# URL OFICIAL DO SEU APLICATIVO NA NUVEM (RENDER):
-# =========================================================================
+# URL oficial da sua aplicacao no Render
 URL_RENDER = "https://manutencao-pro.onrender.com/"
 
 
@@ -28,7 +26,7 @@ class ManutencaoMobileApp(App):
         ]
         request_permissions(permissoes)
       except Exception as erro:
-        print(f"Erro ao solicitar permissoes: {erro}")
+        print(f"Erro de permissoes: {erro}")
 
       Clock.schedule_once(self.carregar_webview_android, 1.2)
     else:
@@ -39,7 +37,7 @@ class ManutencaoMobileApp(App):
     layout = BoxLayout(orientation="vertical", padding=40, spacing=20)
     layout.add_widget(
         Label(
-            text="Manutenção Predial\n\nConectando aos servidores na nuvem...",
+            text="Manutenção Predial\n\nConectando ao servidor...",
             halign="center",
             valign="middle",
             font_size="20sp",
@@ -68,7 +66,7 @@ class ManutencaoMobileApp(App):
         settings.setAllowFileAccess(True)
         settings.setAllowContentAccess(True)
 
-        # Permite tocar o áudio de nova OS automaticamente sem bloqueio
+        # Permite tocar o som de alerta automaticamente sem bloqueio do navegador
         settings.setMediaPlaybackRequiresUserGesture(False)
 
         webview.setWebViewClient(WebViewClient())
@@ -79,7 +77,7 @@ class ManutencaoMobileApp(App):
 
       _criar_e_exibir()
     except Exception as erro:
-      print(f"Erro ao inicializar WebView Android: {erro}")
+      print(f"Erro ao injetar WebView Android: {erro}")
 
 
 if __name__ == "__main__":
