@@ -28,10 +28,6 @@ except ImportError:
 app = Flask(__name__)
 app.secret_key = "chave_mestra_manutencao_predial_segura_2026"
 
-GLOBAL_WEBVIEW = None
-GLOBAL_ACTIVITY = None
-LOCAL_IP = "127.0.0.1"
-
 # ================= CAMADA HÍBRIDA DE BANCO (POSTGRESQL / SQLITE) =================
 DATABASE_URL = os.environ.get("DATABASE_URL")
 IS_POSTGRES = False
@@ -49,7 +45,6 @@ if DATABASE_URL:
 
 
 class DBWrapper:
-  """Compatibiliza as consultas SQL entre PostgreSQL (%s) e SQLite (?)."""
 
   def __init__(self, conn, is_pg=False):
     self.conn = conn
@@ -117,8 +112,6 @@ def init_db():
           "ALTER TABLE ordens_servico ADD COLUMN IF NOT EXISTS foto_problema"
           " TEXT;"
       )
-
-      # Tabela de Manutenções Preventivas
       db.execute("""
                 CREATE TABLE IF NOT EXISTS preventivas (
                     id SERIAL PRIMARY KEY,
@@ -131,7 +124,6 @@ def init_db():
                     ativo INTEGER DEFAULT 1
                 );
             """)
-
       db.execute("""
                 CREATE TABLE IF NOT EXISTS configuracoes (
                     id INTEGER PRIMARY KEY,
@@ -199,7 +191,6 @@ def init_db():
                     ativo INTEGER DEFAULT 1
                 );
             """)
-
       db.execute("""
                 CREATE TABLE IF NOT EXISTS configuracoes (
                     id INTEGER PRIMARY KEY,
@@ -243,7 +234,6 @@ def init_db():
 init_db()
 
 
-# ================= MOTOR DE REVISÕES PREVENTIVAS AUTOMÁTICAS =================
 def verificar_gerar_preventivas():
   hoje_iso = datetime.now().strftime("%Y-%m-%d")
   with get_db() as db:
@@ -307,7 +297,6 @@ def injetar_usuario_logado():
   return info
 
 
-# ================= PROTEÇÃO DE ACESSO =================
 @app.before_request
 def checar_autenticacao():
   rotas_livres = [
@@ -317,6 +306,7 @@ def checar_autenticacao():
       "ping",
       "api_status_sync",
       "compartilhar_whatsapp",
+      "acao_imprimir",
   ]
   if request.endpoint not in rotas_livres and "usuario" not in session:
     return redirect(url_for("login"))
@@ -343,7 +333,6 @@ def tratar_erro(e):
   )
 
 
-# ================= SINCRONIZAÇÃO EM TEMPO REAL =================
 @app.route("/api/status-sync")
 def api_status_sync():
   verificar_gerar_preventivas()
@@ -359,6 +348,14 @@ def api_status_sync():
   )
 
 
+# ================= ROTA DE IMPRESSÃO UNIVERSAL =================
+@app.route("/acao/imprimir/<int:os_id>")
+def acao_imprimir(os_id):
+  # No navegador normal redireciona para o recibo abrindo a caixa de diálogo
+  return redirect(url_for("recibo", os_id=os_id) + "?print=1")
+
+
+# ================= COMPARTILHAMENTO WHATSAPP =================
 @app.route("/compartilhar-whatsapp/<int:os_id>")
 def compartilhar_whatsapp(os_id):
   cfg = obter_configuracoes()
@@ -566,7 +563,7 @@ BASE_HTML = """<!DOCTYPE html>
                 </div>
             </a>
 
-            <!-- BARRA DE BOTÕES ARREDONDADOS (EXATAMENTE COMO NAS SUAS FOTOS) -->
+            <!-- BARRA DE BOTÕES COM ÍCONES -->
             <div class="d-flex align-items-center gap-2 pt-1 flex-wrap">
                 <a href="/preventivas" class="m3-header-icon-pill" title="Planos de Manutenção Preventiva">
                     <span class="material-symbols-rounded fs-5">event_repeat</span>
@@ -601,7 +598,6 @@ BASE_HTML = """<!DOCTYPE html>
         <!-- CORPO_DA_PAGINA -->
     </main>
 
-    <!-- O FAB SÓ APARECE FORA DE NOVA REQUISIÇÃO PARA NÃO TAMPAR OS BOTÕES DE FOTO -->
     <!-- BOTAO_FAB_AQUI -->
 
     <script>
@@ -876,7 +872,6 @@ setInterval(function() {
 </script>
 """
 
-# ================= TELA: NOVA REQUISIÇÃO (COM BOTÕES DESOBSTRUÍDOS) =================
 NOVA_BODY = """
 <div class="row justify-content-center">
     <div class="col-12 col-md-8 col-lg-7">
@@ -909,7 +904,7 @@ NOVA_BODY = """
                     <textarea name="problema" rows="3" class="form-control m3-input" placeholder="Descreva ruídos, vazamento, falhas ou defeito visual..." required></textarea>
                 </div>
 
-                <!-- SEÇÃO VISÍVEL DE FOTO DO LOCAL / DEFEITO DA SUA IMAGEM -->
+                <!-- SEÇÃO VISÍVEL DE FOTO DO LOCAL / DEFEITO -->
                 <div class="mb-4 p-3 bg-light rounded-4 border">
                     <label class="form-label small fw-bold text-uppercase text-secondary d-block">
                         <span class="material-symbols-rounded fs-5 align-middle text-primary">photo_camera</span>
@@ -1004,7 +999,6 @@ function removerFoto() {
 </script>
 """
 
-# ================= TELA: PLANOS DE MANUTENÇÃO PREVENTIVA =================
 PREVENTIVAS_BODY = """
 <div class="mb-4">
     <h4 class="fw-bold mb-1 text-dark">Planos de Manutenção Preventiva</h4>
@@ -1526,6 +1520,7 @@ function processarFotoEdit(input) {
 </script>
 """
 
+# ================= RECIBO TÉCNICO CORRIGIDO =================
 RECIBO_A4_HTML = """<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -1559,16 +1554,38 @@ RECIBO_A4_HTML = """<!DOCTYPE html>
 <body>
 
 <div class="no-print" style="background:#e0f2fe; padding:12px; margin-bottom:15px; border-radius:12px; text-align:center; display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:10px;">
-    <button type="button" onclick="window.print()" style="padding:10px 22px; font-weight:bold; background:#00639b; color:#fff; border:none; border-radius:30px; font-size:10pt; cursor:pointer; display:inline-flex; align-items:center; gap:6px; box-shadow:0 2px 6px rgba(0,99,155,0.3);">
+    <!-- BOTAO IMPRIMIR QUE CHAMA O PRINTMANAGER NO APK E WINDOW.PRINT NO PC -->
+    <a href="/acao/imprimir/{{ os['id'] }}" onclick="executarImpressao(event)" style="padding:10px 22px; font-weight:bold; background:#00639b; color:#fff; border-radius:30px; font-size:10pt; text-decoration:none; display:inline-flex; align-items:center; gap:6px; box-shadow:0 2px 6px rgba(0,99,155,0.3); cursor:pointer;">
         🖨️ Imprimir / Salvar PDF
-    </button>
+    </a>
+    
+    <!-- BOTAO ABRIR NO CHROME NATIVO -->
+    <a href="/recibo/{{ os['id'] }}?abrir-chrome=1&print=1" target="_blank" style="padding:10px 18px; font-weight:bold; background:#0284c7; color:#fff; border-radius:30px; font-size:10pt; text-decoration:none; display:inline-flex; align-items:center; gap:6px;">
+        🌐 Abrir no Chrome
+    </a>
+    
+    <!-- BOTAO WHATSAPP QUE CHAMA O APLICATIVO DIRETO -->
     <a href="/compartilhar-whatsapp/{{ os['id'] }}" style="padding:10px 20px; font-weight:bold; background:#25d366; color:#fff; border-radius:30px; font-size:10pt; text-decoration:none; display:inline-flex; align-items:center; gap:6px; box-shadow:0 2px 6px rgba(37,211,102,0.35);">
         💬 Enviar no WhatsApp
     </a>
+    
     <a href="/" style="padding:10px 16px; font-size:9pt; color:#475569; text-decoration:none; font-weight:600;">
         ⬅ Voltar ao Painel
     </a>
 </div>
+
+<script>
+function executarImpressao(e) {
+    // Se estiver no computador ou Chrome mobile executa window.print()
+    if (!navigator.userAgent.includes('wv') && !navigator.userAgent.includes('Version/')) {
+        e.preventDefault();
+        window.print();
+    }
+}
+if (window.location.search.indexOf('print=1') !== -1) {
+    setTimeout(function() { window.print(); }, 500);
+}
+</script>
 
 {% macro render_via(tipo, badge_class) %}
 <div class="receipt-via">
@@ -1639,7 +1656,6 @@ RECIBO_A4_HTML = """<!DOCTYPE html>
 </html>
 """
 
-# Montagem das páginas: FAB ativo somente no painel e na tela de preventivas
 INDEX_HTML = BASE_HTML.replace("<!-- CORPO_DA_PAGINA -->", INDEX_BODY).replace(
     "<!-- BOTAO_FAB_AQUI -->", FAB_HTML
 )
