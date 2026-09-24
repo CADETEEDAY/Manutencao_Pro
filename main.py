@@ -36,7 +36,7 @@ class ManutencaoMobileApp(App):
     layout = BoxLayout(orientation="vertical", padding=40, spacing=20)
     layout.add_widget(
         Label(
-            text="Manutenção Predial\n\nSincronizando com a nuvem...",
+            text="Manutenção Predial\n\nConectando aos servidores...",
             halign="center",
             valign="middle",
             font_size="20sp",
@@ -47,39 +47,96 @@ class ManutencaoMobileApp(App):
   def carregar_webview_android(self, dt):
     try:
       from android.runnable import run_on_ui_thread
-      from jnius import autoclass
+      from jnius import PythonJavaClass, autoclass, java_method
 
-      @run_on_ui_thread
-      def _criar_e_exibir():
-        WebView = autoclass("android.webkit.WebView")
-        WebViewClient = autoclass("android.webkit.WebViewClient")
-        WebChromeClient = autoclass("android.webkit.WebChromeClient")
-        WebSettings = autoclass("android.webkit.WebSettings")
-        activity = autoclass("org.kivy.android.PythonActivity").mActivity
+      activity = autoclass("org.kivy.android.PythonActivity").mActivity
+      WebView = autoclass("android.webkit.WebView")
+      WebChromeClient = autoclass("android.webkit.WebChromeClient")
+      WebSettings = autoclass("android.webkit.WebSettings")
+      Intent = autoclass("android.content.Intent")
+      Uri = autoclass("android.net.Uri")
 
-        webview = WebView(activity)
-        settings = webview.getSettings()
+      webview = WebView(activity)
+      settings = webview.getSettings()
 
-        settings.setJavaScriptEnabled(True)
-        settings.setDomStorageEnabled(True)
-        settings.setDatabaseEnabled(True)
-        settings.setAllowFileAccess(True)
-        settings.setAllowContentAccess(True)
+      settings.setJavaScriptEnabled(True)
+      settings.setDomStorageEnabled(True)
+      settings.setDatabaseEnabled(True)
+      settings.setAllowFileAccess(True)
+      settings.setAllowContentAccess(True)
+      settings.setCacheMode(WebSettings.LOAD_NO_CACHE)
+      webview.clearCache(True)
+      settings.setMediaPlaybackRequiresUserGesture(False)
 
-        # Força o aplicativo a sempre buscar a versão mais recente sem travar no cache
-        settings.setCacheMode(WebSettings.LOAD_NO_CACHE)
-        webview.clearCache(True)
+      # INTERCEPTADOR DE URL: Resolve WhatsApp e Impressão no APK
+      class AppWebViewClient(PythonJavaClass):
+        __javainterfaces__ = ["android/webkit/WebViewClient"]
+        __javacontext__ = "app"
 
-        # Permite tocar os alarmes sonoros automaticamente
-        settings.setMediaPlaybackRequiresUserGesture(False)
+        def __init__(self, act, wv):
+          super().__init__()
+          self.act = act
+          self.wv = wv
 
-        webview.setWebViewClient(WebViewClient())
-        webview.setWebChromeClient(WebChromeClient())
+        @java_method("(Landroid/webkit/WebView;Ljava/lang/String;)Z")
+        def shouldOverrideUrlLoading(self, view, url):
+          # 1. Abre o WhatsApp no aplicativo instalado
+          if (
+              "whatsapp.com" in url
+              or "wa.me" in url
+              or url.startswith("whatsapp:")
+          ):
+            try:
+              intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+              self.act.startActivity(intent)
+              return True
+            except Exception as e:
+              print(f"Erro ao abrir WhatsApp: {e}")
+              return False
 
-        activity.setContentView(webview)
-        webview.loadUrl(URL_RENDER)
+          # 2. Aciona a impressão nativa do Android
+          if "/acao/imprimir" in url:
+            try:
 
-      _criar_e_exibir()
+              @run_on_ui_thread
+              def _chamar_print():
+                Context = autoclass("android.content.Context")
+                MediaSize = autoclass("android.print.PrintAttributes$MediaSize")
+                Builder = autoclass("android.print.PrintAttributes$Builder")
+
+                printManager = self.act.getSystemService(Context.PRINT_SERVICE)
+                job_name = "Recibo_OS"
+                printAdapter = self.wv.createPrintDocumentAdapter(job_name)
+
+                builder = Builder()
+                builder.setMediaSize(MediaSize.ISO_A4)
+                printManager.print(job_name, printAdapter, builder.build())
+
+              _chamar_print()
+              return True
+            except Exception as e:
+              print(f"Erro PrintManager: {e}")
+              return False
+
+          # 3. Permite abrir links externos no Chrome
+          if "abrir-chrome=1" in url:
+            try:
+              intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+              self.act.startActivity(intent)
+              return True
+            except Exception as e:
+              print(f"Erro ao abrir Chrome: {e}")
+              return False
+
+          return False
+
+      client = AppWebViewClient(activity, webview)
+      webview.setWebViewClient(client)
+      webview.setWebChromeClient(WebChromeClient())
+
+      activity.setContentView(webview)
+      webview.loadUrl(URL_RENDER)
+
     except Exception as erro:
       print(f"Erro ao injetar WebView Android: {erro}")
 
