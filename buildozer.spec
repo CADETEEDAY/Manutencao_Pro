@@ -1,12 +1,12 @@
 [app]
 
-# (str) Title of your application (SEM ACENTOS PARA NÃO TRAVAR O GRADLE)
+# (str) Title of your application (sem acentos para não quebrar o Gradle)
 title = Manutencao Pro
 
 # (str) Package name
 package.name = manutencao
 
-# (str) Package domain (needed for android/ios packaging)
+# (str) Package domain
 package.domain = org.manutencao
 
 # (str) Source code where the main.py lives
@@ -22,7 +22,6 @@ source.exclude_dirs = tests, bin, venv, .venv, .git, .github, .buildozer
 version = 1.0.0
 
 # (list) Application requirements
-# O APK funciona como WebView conectado ao Render; nao compile psycopg2 ou flask aqui
 requirements = python3,kivy,urllib3
 
 # (str) Supported orientation
@@ -42,6 +41,12 @@ android.minapi = 21
 
 # (str) Android NDK version to use
 android.ndk = 25b
+
+# (str) Android Build Tools version (CORRIGE O ERRO DO AIDL)
+android.build_tools_version = 33.0.2
+
+# (bool) Aceitar licenças do SDK automaticamente
+android.accept_sdk_license = True
 
 # (bool) Enable AndroidX support
 android.enable_androidx = True
