@@ -11,6 +11,8 @@ URL_RENDER = "https://manutencao-pro.onrender.com/"
 class ManutencaoMobileApp(App):
 
   def build(self):
+    self.webview = None
+
     if platform == "android":
       try:
         from android.permissions import request_permissions
@@ -25,9 +27,9 @@ class ManutencaoMobileApp(App):
         ]
         request_permissions(permissoes)
       except Exception as erro:
-        print(f"Erro de permissoes: {erro}")
+        print(f"Erro permissoes: {erro}")
 
-      Clock.schedule_once(self.carregar_webview_android, 1.2)
+      Clock.schedule_once(self.carregar_webview_android, 0.8)
     else:
       import webbrowser
 
@@ -47,98 +49,83 @@ class ManutencaoMobileApp(App):
   def carregar_webview_android(self, dt):
     try:
       from android.runnable import run_on_ui_thread
-      from jnius import PythonJavaClass, autoclass, java_method
+      from jnius import autoclass
 
-      activity = autoclass("org.kivy.android.PythonActivity").mActivity
-      WebView = autoclass("android.webkit.WebView")
-      WebChromeClient = autoclass("android.webkit.WebChromeClient")
-      WebSettings = autoclass("android.webkit.WebSettings")
-      Intent = autoclass("android.content.Intent")
-      Uri = autoclass("android.net.Uri")
+      @run_on_ui_thread
+      def _criar_e_exibir():
+        activity = autoclass("org.kivy.android.PythonActivity").mActivity
+        WebView = autoclass("android.webkit.WebView")
+        WebViewClient = autoclass("android.webkit.WebViewClient")
+        WebChromeClient = autoclass("android.webkit.WebChromeClient")
+        WebSettings = autoclass("android.webkit.WebSettings")
 
-      webview = WebView(activity)
-      settings = webview.getSettings()
+        self.webview = WebView(activity)
+        settings = self.webview.getSettings()
 
-      settings.setJavaScriptEnabled(True)
-      settings.setDomStorageEnabled(True)
-      settings.setDatabaseEnabled(True)
-      settings.setAllowFileAccess(True)
-      settings.setAllowContentAccess(True)
-      settings.setCacheMode(WebSettings.LOAD_NO_CACHE)
-      webview.clearCache(True)
-      settings.setMediaPlaybackRequiresUserGesture(False)
+        settings.setJavaScriptEnabled(True)
+        settings.setDomStorageEnabled(True)
+        settings.setDatabaseEnabled(True)
+        settings.setAllowFileAccess(True)
+        settings.setAllowContentAccess(True)
+        settings.setCacheMode(WebSettings.LOAD_NO_CACHE)
+        self.webview.clearCache(True)
+        settings.setMediaPlaybackRequiresUserGesture(False)
 
-      # INTERCEPTADOR DE URL: Resolve WhatsApp e Impressão no APK
-      class AppWebViewClient(PythonJavaClass):
-        __javainterfaces__ = ["android/webkit/WebViewClient"]
-        __javacontext__ = "app"
+        # Utiliza clientes nativos diretos (sem subclasses que quebram o PyJNIus)
+        self.webview.setWebViewClient(WebViewClient())
+        self.webview.setWebChromeClient(WebChromeClient())
 
-        def __init__(self, act, wv):
-          super().__init__()
-          self.act = act
-          self.wv = wv
+        # Exibe a interface web imediatamente
+        activity.setContentView(self.webview)
+        self.webview.loadUrl(URL_RENDER)
 
-        @java_method("(Landroid/webkit/WebView;Ljava/lang/String;)Z")
-        def shouldOverrideUrlLoading(self, view, url):
-          # 1. Abre o WhatsApp no aplicativo instalado
-          if (
-              "whatsapp.com" in url
-              or "wa.me" in url
-              or url.startswith("whatsapp:")
-          ):
-            try:
-              intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-              self.act.startActivity(intent)
-              return True
-            except Exception as e:
-              print(f"Erro ao abrir WhatsApp: {e}")
-              return False
+        # Inicia o monitor de links para disparar WhatsApp e Chrome externamente
+        Clock.schedule_interval(self.monitorar_links_externos, 0.4)
 
-          # 2. Aciona a impressão nativa do Android
-          if "/acao/imprimir" in url:
-            try:
-
-              @run_on_ui_thread
-              def _chamar_print():
-                Context = autoclass("android.content.Context")
-                MediaSize = autoclass("android.print.PrintAttributes$MediaSize")
-                Builder = autoclass("android.print.PrintAttributes$Builder")
-
-                printManager = self.act.getSystemService(Context.PRINT_SERVICE)
-                job_name = "Recibo_OS"
-                printAdapter = self.wv.createPrintDocumentAdapter(job_name)
-
-                builder = Builder()
-                builder.setMediaSize(MediaSize.ISO_A4)
-                printManager.print(job_name, printAdapter, builder.build())
-
-              _chamar_print()
-              return True
-            except Exception as e:
-              print(f"Erro PrintManager: {e}")
-              return False
-
-          # 3. Permite abrir links externos no Chrome
-          if "abrir-chrome=1" in url:
-            try:
-              intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-              self.act.startActivity(intent)
-              return True
-            except Exception as e:
-              print(f"Erro ao abrir Chrome: {e}")
-              return False
-
-          return False
-
-      client = AppWebViewClient(activity, webview)
-      webview.setWebViewClient(client)
-      webview.setWebChromeClient(WebChromeClient())
-
-      activity.setContentView(webview)
-      webview.loadUrl(URL_RENDER)
-
+      _criar_e_exibir()
     except Exception as erro:
-      print(f"Erro ao injetar WebView Android: {erro}")
+      print(f"Erro fatal WebView: {erro}")
+
+  def monitorar_links_externos(self, dt):
+    """Monitora a navegação da WebView e redireciona WhatsApp e Impressão para os apps nativos."""
+    if not self.webview:
+      return
+    try:
+      url_java = self.webview.getUrl()
+      if not url_java:
+        return
+      url = str(url_java)
+
+      # 1. Dispara o aplicativo do WhatsApp instalado no celular
+      if "whatsapp.com" in url or "wa.me" in url or "whatsapp:" in url:
+        from jnius import autoclass
+
+        Intent = autoclass("android.content.Intent")
+        Uri = autoclass("android.net.Uri")
+        activity = autoclass("org.kivy.android.PythonActivity").mActivity
+
+        if self.webview.canGoBack():
+          self.webview.goBack()
+
+        intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+        activity.startActivity(intent)
+
+      # 2. Dispara o Chrome para impressão e download de PDF com spooler nativo
+      elif "abrir-chrome=1" in url:
+        from jnius import autoclass
+
+        Intent = autoclass("android.content.Intent")
+        Uri = autoclass("android.net.Uri")
+        activity = autoclass("org.kivy.android.PythonActivity").mActivity
+
+        if self.webview.canGoBack():
+          self.webview.goBack()
+
+        intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+        activity.startActivity(intent)
+
+    except Exception as e:
+      print(f"Erro no monitor de links: {e}")
 
 
 if __name__ == "__main__":
