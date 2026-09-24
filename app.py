@@ -117,6 +117,7 @@ def init_db():
           "ALTER TABLE ordens_servico ADD COLUMN IF NOT EXISTS foto_problema"
           " TEXT;"
       )
+
       db.execute("""
                 CREATE TABLE IF NOT EXISTS preventivas (
                     id SERIAL PRIMARY KEY,
@@ -129,6 +130,7 @@ def init_db():
                     ativo INTEGER DEFAULT 1
                 )
             """)
+
       db.execute("""
                 CREATE TABLE IF NOT EXISTS configuracoes (
                     id INTEGER PRIMARY KEY,
@@ -196,6 +198,7 @@ def init_db():
                     ativo INTEGER DEFAULT 1
                 )
             """)
+
       db.execute("""
                 CREATE TABLE IF NOT EXISTS configuracoes (
                     id INTEGER PRIMARY KEY,
@@ -239,7 +242,7 @@ def init_db():
 init_db()
 
 
-# ================= GERAÇÃO AUTOMÁTICA DE PREVENTIVAS =================
+# ================= MOTOR DE REVISÕES PREVENTIVAS AUTOMÁTICAS =================
 def verificar_gerar_preventivas():
   hoje_iso = datetime.now().strftime("%Y-%m-%d")
   with get_db() as db:
@@ -303,7 +306,7 @@ def injetar_usuario_logado():
   return info
 
 
-# ================= PROTEÇÃO DE ROTAS =================
+# ================= PROTEÇÃO DE ACESSO =================
 @app.before_request
 def checar_autenticacao():
   rotas_livres = [
@@ -355,7 +358,6 @@ def api_status_sync():
   )
 
 
-# ================= WHATSAPP =================
 @app.route("/compartilhar-whatsapp/<int:os_id>")
 def compartilhar_whatsapp(os_id):
   cfg = obter_configuracoes()
@@ -394,7 +396,7 @@ _Comprovante emitido via Sistema de Manutenção_"""
   return redirect(f"https://api.whatsapp.com/send?text={texto_url}")
 
 
-# ================= TEMPLATES VISUAIS =================
+# ================= TEMPLATES (MATERIAL 3 EXPRESSIVE) =================
 LOGIN_HTML = """<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -425,7 +427,7 @@ LOGIN_HTML = """<!DOCTYPE html>
                 </div>
             {% endif %}
             <h4 class="fw-bold mb-1 text-dark">{{ cfg['nome_empresa'] }}</h4>
-            <span class="text-muted small">Controle de Manutenção em Nuvem</span>
+            <span class="text-muted small">Controle de Manutenção Preventiva & Corretiva</span>
         </div>
         {% if erro %}
             <div class="alert alert-danger py-2 px-3 small rounded-3 mb-3 border-0 d-flex align-items-center gap-2">
@@ -540,12 +542,13 @@ BASE_HTML = """<!DOCTYPE html>
                 </div>
                 {% endif %}
 
+                <!-- BOTÃO DE MANUTENÇÕES PREVENTIVAS -->
                 <a href="/preventivas" class="m3-btn-tonal" title="Manutenções Preventivas Periódicas">
                     <span class="material-symbols-rounded fs-5">event_repeat</span>
                     <span class="d-none d-sm-inline">Preventivas</span>
                 </a>
 
-                <!-- BOTÃO DE NOTIFICAÇÃO SONORA E TESTE -->
+                <!-- BOTÃO DE ATIVAR/SILENCIAR ÁUDIO -->
                 <button type="button" id="btnSomNotif" onclick="alternarSom()" class="m3-btn-tonal py-1 px-3" title="Ativar/Desativar som de novos chamados">
                     <span class="material-symbols-rounded fs-5" id="iconeSom">notifications_active</span>
                 </button>
@@ -648,7 +651,7 @@ BASE_HTML = """<!DOCTYPE html>
             osc2.start(now + 0.15);
             osc2.stop(now + 0.8);
 
-            // Vibração tátil no celular Android
+            // Vibração no Android
             if ('vibrate' in navigator) {
                 navigator.vibrate([200, 100, 250]);
             }
@@ -826,7 +829,7 @@ function filtrarOrdens() {
     });
 }
 
-// SINCRONIZAÇÃO EM TEMPO REAL COM SOM DE ALERTA
+// SINCRONIZAÇÃO EM TEMPO REAL: Dispara som ao receber nova chamada
 setInterval(function() {
     fetch('/api/status-sync')
         .then(r => r.json())
@@ -848,7 +851,7 @@ setInterval(function() {
 </script>
 """
 
-# ================= TELA: NOVA REQUISIÇÃO (COM BOTÕES DE CÂMARA E GALERIA) =================
+# ================= TELA: NOVA REQUISIÇÃO COM CAPTURA DE FOTO =================
 NOVA_BODY = """
 <div class="row justify-content-center">
     <div class="col-12 col-md-8 col-lg-7">
@@ -876,7 +879,7 @@ NOVA_BODY = """
                     <textarea name="problema" rows="3" class="form-control m3-input" placeholder="Descreva ruídos, vazamentos, avarias ou inspeção solicitada..." required></textarea>
                 </div>
 
-                <!-- SEÇÃO VISÍVEL E COMPLETA DE CAPTURA DE FOTOGRAFIA -->
+                <!-- SEÇÃO VISÍVEL E COMPLETA DE FOTOGRAFIA DO DEFEITO -->
                 <div class="mb-4 p-3 bg-light rounded-4 border">
                     <label class="form-label small fw-bold text-uppercase text-secondary d-block">
                         <span class="material-symbols-rounded fs-5 align-middle text-primary">add_a_photo</span>
@@ -889,7 +892,7 @@ NOVA_BODY = """
                             <div id="placeholderFoto" class="text-secondary p-3 text-center">
                                 <span class="material-symbols-rounded fs-1 text-muted d-block mb-1">image</span>
                                 <span class="small text-muted fw-bold">Nenhuma foto anexada</span>
-                                <div class="text-muted" style="font-size: 0.72rem;">Tire uma foto ou selecione da galeria</div>
+                                <div class="text-muted" style="font-size: 0.72rem;">Tire uma foto com a câmara ou escolha da galeria</div>
                             </div>
                         </div>
                         <div id="btnRemoverFoto" class="mt-2" style="display: none;">
@@ -1128,10 +1131,19 @@ NOVA_PREVENTIVA_BODY = """
                     <div class="col-12 col-md-6">
                         <label class="form-label small fw-bold text-uppercase text-secondary">Periodicidade (em dias):</label>
                         <input type="number" id="inputPeriodicidade" name="periodicidade_dias" class="form-control m3-input" value="30" min="1" required>
+                        <div class="d-flex flex-wrap gap-1 mt-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="setDias(7)">7d</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="setDias(15)">15d</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="setDias(30)">30d</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="setDias(90)">90d</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="setDias(180)">180d</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="setDias(365)">1 ano</button>
+                        </div>
                     </div>
                     <div class="col-12 col-md-6">
                         <label class="form-label small fw-bold text-uppercase text-secondary">Data da 1ª Execução:</label>
                         <input type="date" name="proxima_data" class="form-control m3-input" value="{{ hoje_iso }}" required>
+                        <small class="text-muted d-block mt-1">Data em que a OS será aberta no sistema.</small>
                     </div>
                 </div>
 
@@ -1148,6 +1160,12 @@ NOVA_PREVENTIVA_BODY = """
         </div>
     </div>
 </div>
+
+<script>
+function setDias(n) {
+    document.getElementById('inputPeriodicidade').value = n;
+}
+</script>
 """
 
 EDITAR_PREVENTIVA_BODY = """
