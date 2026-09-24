@@ -49,7 +49,7 @@ if DATABASE_URL:
 
 
 class DBWrapper:
-  """Compatibiliza a sintaxe SQL entre PostgreSQL (%s) e SQLite (?)."""
+  """Compatibiliza as consultas SQL entre PostgreSQL (%s) e SQLite (?)."""
 
   def __init__(self, conn, is_pg=False):
     self.conn = conn
@@ -111,13 +111,14 @@ def init_db():
                     pecas TEXT,
                     status TEXT NOT NULL,
                     foto_problema TEXT
-                )
+                );
             """)
       db.execute(
           "ALTER TABLE ordens_servico ADD COLUMN IF NOT EXISTS foto_problema"
           " TEXT;"
       )
 
+      # Tabela de Manutenções Preventivas
       db.execute("""
                 CREATE TABLE IF NOT EXISTS preventivas (
                     id SERIAL PRIMARY KEY,
@@ -128,7 +129,7 @@ def init_db():
                     proxima_data TEXT NOT NULL,
                     ultima_geracao TEXT,
                     ativo INTEGER DEFAULT 1
-                )
+                );
             """)
 
       db.execute("""
@@ -138,12 +139,12 @@ def init_db():
                     subtitulo TEXT,
                     contato TEXT,
                     logo_base64 TEXT
-                )
+                );
             """)
       db.execute("""
                 INSERT INTO configuracoes (id, nome_empresa, subtitulo, contato, logo_base64)
                 VALUES (1, 'Manutenção Predial', 'Gestão Operacional de Serviços', '', '')
-                ON CONFLICT (id) DO NOTHING
+                ON CONFLICT (id) DO NOTHING;
             """)
       db.execute("""
                 CREATE TABLE IF NOT EXISTS usuarios (
@@ -153,7 +154,7 @@ def init_db():
                     nome TEXT NOT NULL,
                     nivel TEXT DEFAULT 'admin',
                     foto_base64 TEXT
-                )
+                );
             """)
       cur = db.execute("SELECT id FROM usuarios WHERE usuario = 'admin'")
       if not cur.fetchone():
@@ -179,7 +180,7 @@ def init_db():
                     pecas TEXT,
                     status TEXT NOT NULL,
                     foto_problema TEXT
-                )
+                );
             """)
       cur = db.execute("PRAGMA table_info(ordens_servico)")
       cols = [c[1] for c in cur.fetchall()]
@@ -196,7 +197,7 @@ def init_db():
                     proxima_data TEXT NOT NULL,
                     ultima_geracao TEXT,
                     ativo INTEGER DEFAULT 1
-                )
+                );
             """)
 
       db.execute("""
@@ -206,7 +207,7 @@ def init_db():
                     subtitulo TEXT,
                     contato TEXT,
                     logo_base64 TEXT
-                )
+                );
             """)
       db.execute("""
                 INSERT OR IGNORE INTO configuracoes (id, nome_empresa, subtitulo, contato, logo_base64)
@@ -220,7 +221,7 @@ def init_db():
                     nome TEXT NOT NULL,
                     nivel TEXT DEFAULT 'admin',
                     foto_base64 TEXT
-                )
+                );
             """)
       cur_u = db.execute("PRAGMA table_info(usuarios)")
       cols_u = [c[1] for c in cur_u.fetchall()]
@@ -600,7 +601,7 @@ BASE_HTML = """<!DOCTYPE html>
         <!-- CORPO_DA_PAGINA -->
     </main>
 
-    <!-- FAB FIXO APENAS FORA DA TELA DE NOVA REQUISIÇÃO (NÃO COBRE OS BOTÕES) -->
+    <!-- O FAB SÓ APARECE FORA DE NOVA REQUISIÇÃO PARA NÃO TAMPAR OS BOTÕES DE FOTO -->
     <!-- BOTAO_FAB_AQUI -->
 
     <script>
@@ -716,13 +717,15 @@ INDEX_BODY = """
         </div>
     </div>
     <div class="col-6 col-lg-3">
-        <div class="m3-stat-box m3-stat-tertiary">
-            <div class="m3-icon-badge"><span class="material-symbols-rounded fs-4">event_repeat</span></div>
-            <div>
-                <div class="small fw-semibold text-uppercase" style="opacity: 0.85;">Preventivas</div>
-                <div class="fs-4 fw-bold">{{ total_preventivas }}</div>
+        <a href="/preventivas" class="text-decoration-none">
+            <div class="m3-stat-box m3-stat-tertiary">
+                <div class="m3-icon-badge"><span class="material-symbols-rounded fs-4">event_repeat</span></div>
+                <div>
+                    <div class="small fw-semibold text-uppercase" style="opacity: 0.85;">Preventivas &rarr;</div>
+                    <div class="fs-4 fw-bold">{{ total_preventivas }}</div>
+                </div>
             </div>
-        </div>
+        </a>
     </div>
 </div>
 
@@ -767,7 +770,7 @@ INDEX_BODY = """
                         {% if os['foto_problema'] %}
                             <img src="{{ os['foto_problema'] }}" style="width: 44px; height: 44px; object-fit: cover; border-radius: 8px; border: 1px solid #cbd5e1; cursor: pointer;" onclick="window.open('{{ os['foto_problema'] }}', '_blank')" title="Ampliar foto do defeito">
                         {% else %}
-                            <div style="width: 44px; height: 44px; background: #f1f5f9; border-radius: 8px; display: flex; align-items: center; justify-content: center;" title="Sem foto">
+                            <div style="width: 44px; height: 44px; background: #f1f5f9; border-radius: 8px; display: flex; align-items: center; justify-content: center;">
                                 <span class="material-symbols-rounded text-muted fs-5">image_not_supported</span>
                             </div>
                         {% endif %}
@@ -873,7 +876,7 @@ setInterval(function() {
 </script>
 """
 
-# ================= TELA: NOVA REQUISIÇÃO (EXATAMENTE COMO NAS SUAS FOTOS) =================
+# ================= TELA: NOVA REQUISIÇÃO (COM BOTÕES DESOBSTRUÍDOS) =================
 NOVA_BODY = """
 <div class="row justify-content-center">
     <div class="col-12 col-md-8 col-lg-7">
@@ -906,7 +909,7 @@ NOVA_BODY = """
                     <textarea name="problema" rows="3" class="form-control m3-input" placeholder="Descreva ruídos, vazamento, falhas ou defeito visual..." required></textarea>
                 </div>
 
-                <!-- SEÇÃO EXATA DE FOTO DO LOCAL / DEFEITO DA SUA IMAGEM -->
+                <!-- SEÇÃO VISÍVEL DE FOTO DO LOCAL / DEFEITO DA SUA IMAGEM -->
                 <div class="mb-4 p-3 bg-light rounded-4 border">
                     <label class="form-label small fw-bold text-uppercase text-secondary d-block">
                         <span class="material-symbols-rounded fs-5 align-middle text-primary">photo_camera</span>
@@ -1636,7 +1639,7 @@ RECIBO_A4_HTML = """<!DOCTYPE html>
 </html>
 """
 
-# Montagem das páginas: o FAB só aparece onde não tapa formulários
+# Montagem das páginas: FAB ativo somente no painel e na tela de preventivas
 INDEX_HTML = BASE_HTML.replace("<!-- CORPO_DA_PAGINA -->", INDEX_BODY).replace(
     "<!-- BOTAO_FAB_AQUI -->", FAB_HTML
 )
