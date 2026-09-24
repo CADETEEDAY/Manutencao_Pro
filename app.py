@@ -28,6 +28,10 @@ except ImportError:
 app = Flask(__name__)
 app.secret_key = "chave_mestra_manutencao_predial_segura_2026"
 
+GLOBAL_WEBVIEW = None
+GLOBAL_ACTIVITY = None
+LOCAL_IP = "127.0.0.1"
+
 # ================= CAMADA HÍBRIDA DE BANCO (POSTGRESQL / SQLITE) =================
 DATABASE_URL = os.environ.get("DATABASE_URL")
 IS_POSTGRES = False
@@ -287,6 +291,7 @@ def injetar_usuario_logado():
   info = {
       "usuario_logado_info": None,
       "modo_nuvem": IS_POSTGRES,
+      "ultimo_id_sistema": 0,
   }
   if "usuario" in session:
     with get_db() as db:
@@ -294,6 +299,10 @@ def injetar_usuario_logado():
           "SELECT * FROM usuarios WHERE usuario = ?", (session["usuario"],)
       ).fetchone()
       info["usuario_logado_info"] = u
+      max_id = db.execute(
+          "SELECT COALESCE(MAX(id), 0) FROM ordens_servico"
+      ).fetchone()[0]
+      info["ultimo_id_sistema"] = max_id
   return info
 
 
@@ -333,29 +342,54 @@ def tratar_erro(e):
   )
 
 
+# ================= SINCRONIZAÇÃO EM TEMPO REAL COM DADOS DO CHAMADO =================
 @app.route("/api/status-sync")
 def api_status_sync():
   verificar_gerar_preventivas()
   with get_db() as db:
-    total = db.execute(
+    total_row = db.execute(
         "SELECT COUNT(*), COALESCE(MAX(id), 0) FROM ordens_servico"
     ).fetchone()
+    total = total_row[0]
+    ultimo_id = total_row[1]
+
     concluidas = db.execute(
         "SELECT COUNT(*) FROM ordens_servico WHERE status = 'CONCLUÍDA'"
     ).fetchone()[0]
-  return jsonify(
-      {"total": total[0], "ultimo_id": total[1], "concluidas": concluidas}
-  )
+
+    ultimo_chamado = None
+    if ultimo_id > 0:
+      os_ult = db.execute(
+          "SELECT id, equipamento, solicitante, problema, status FROM"
+          " ordens_servico WHERE id = ?",
+          (ultimo_id,),
+      ).fetchone()
+      if os_ult:
+        ultimo_chamado = {
+            "id": os_ult["id"],
+            "equipamento": os_ult["equipamento"],
+            "solicitante": os_ult["solicitante"],
+            "problema": (
+                os_ult["problema"][:70] + "..."
+                if len(os_ult["problema"]) > 70
+                else os_ult["problema"]
+            ),
+            "status": os_ult["status"],
+        }
+
+  return jsonify({
+      "total": total,
+      "ultimo_id": ultimo_id,
+      "concluidas": concluidas,
+      "ultimo_chamado": ultimo_chamado,
+  })
 
 
-# ================= ROTA DE IMPRESSÃO UNIVERSAL =================
 @app.route("/acao/imprimir/<int:os_id>")
 def acao_imprimir(os_id):
-  # No navegador normal redireciona para o recibo abrindo a caixa de diálogo
   return redirect(url_for("recibo", os_id=os_id) + "?print=1")
 
 
-# ================= COMPARTILHAMENTO WHATSAPP =================
 @app.route("/compartilhar-whatsapp/<int:os_id>")
 def compartilhar_whatsapp(os_id):
   cfg = obter_configuracoes()
@@ -544,6 +578,27 @@ BASE_HTML = """<!DOCTYPE html>
         .m3-btn-filled { background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); border: none; border-radius: var(--md-shape-full); padding: 10px 22px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; }
         .m3-btn-tonal { background-color: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); border: none; border-radius: var(--md-shape-full); padding: 10px 20px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 6px; text-decoration: none; }
         .m3-btn-danger { background-color: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container); border: none; border-radius: var(--md-shape-full); padding: 6px 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; text-decoration: none; }
+
+        /* CARD DE NOTIFICAÇÃO FLUTUANTE EM TEMPO REAL */
+        #toastNotificacaoOS {
+            position: fixed;
+            top: 18px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 9999;
+            width: 92%;
+            max-width: 480px;
+            background: #ffffff;
+            border: 2px solid #00639b;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0, 99, 155, 0.25);
+            animation: slideDownNotif 0.4s ease-out;
+            display: none;
+        }
+        @keyframes slideDownNotif {
+            from { top: -80px; opacity: 0; }
+            to { top: 18px; opacity: 1; }
+        }
     </style>
 </head>
 <body>
@@ -584,13 +639,24 @@ BASE_HTML = """<!DOCTYPE html>
         </div>
     </header>
 
-    <div id="bannerNovaOS" class="container mb-3" style="display: none;">
-        <div class="alert alert-warning border-warning shadow-sm py-2 px-3 rounded-4 d-flex align-items-center justify-content-between">
-            <div class="d-flex align-items-center gap-2">
-                <span class="material-symbols-rounded fs-4 text-warning">notification_important</span>
-                <strong>Atenção:</strong> Uma nova requisição de manutenção acabou de chegar!
+    <!-- NOTIFICAÇÃO FLUTUANTE EM TEMPO REAL COM DADOS DO CHAMADO -->
+    <div id="toastNotificacaoOS" class="p-3">
+        <div class="d-flex align-items-start gap-3">
+            <div style="width: 44px; height: 44px; background: #ffe08b; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                <span class="material-symbols-rounded text-dark fs-3">notification_important</span>
             </div>
-            <button onclick="window.location.reload()" class="btn btn-sm btn-warning fw-bold rounded-pill px-3">Atualizar Agora</button>
+            <div class="flex-grow-1">
+                <div class="d-flex align-items-center justify-content-between">
+                    <span class="badge bg-danger rounded-pill text-uppercase" style="font-size: 0.7rem;">Nova Requisição</span>
+                    <button type="button" class="btn-close" style="font-size: 0.75rem;" onclick="fecharToastNotificacao()"></button>
+                </div>
+                <h6 class="fw-bold mb-1 mt-1 text-dark" id="notifEquipamento">Equipamento</h6>
+                <div class="small text-secondary mb-2" id="notifSolicitante">Solicitante: Portaria</div>
+                <div class="d-flex gap-2">
+                    <a href="/" class="btn btn-sm btn-primary rounded-pill px-3 py-1 fw-bold small">Ver Requisição</a>
+                    <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3 py-1 small" onclick="fecharToastNotificacao()">Dispensar</button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -603,6 +669,7 @@ BASE_HTML = """<!DOCTYPE html>
     <script>
     let somHabilitado = localStorage.getItem('manutencao_som') !== 'desativado';
     let audioCtx = null;
+    let ultimoIdGravado = {{ ultimo_id_sistema or 0 }};
 
     function getAudioContext() {
         if (!audioCtx) {
@@ -615,8 +682,22 @@ BASE_HTML = """<!DOCTYPE html>
         return audioCtx;
     }
 
-    document.addEventListener('click', function() { getAudioContext(); }, { once: true });
-    document.addEventListener('touchstart', function() { getAudioContext(); }, { once: true });
+    // Solicita permissão para Notificações do Sistema Operacional
+    function solicitarPermissaoNotificacao() {
+        if ("Notification" in window && Notification.permission === "default") {
+            Notification.requestPermission();
+        }
+    }
+
+    document.addEventListener('click', function() { 
+        getAudioContext(); 
+        solicitarPermissaoNotificacao();
+    }, { once: true });
+    
+    document.addEventListener('touchstart', function() { 
+        getAudioContext(); 
+        solicitarPermissaoNotificacao();
+    }, { once: true });
 
     function atualizarIconeSom() {
         const icon = document.getElementById('iconeSom');
@@ -646,7 +727,7 @@ BASE_HTML = """<!DOCTYPE html>
             const gain1 = ctx.createGain();
             osc1.type = 'sine';
             osc1.frequency.setValueAtTime(587.33, now);
-            gain1.gain.setValueAtTime(0.5, now);
+            gain1.gain.setValueAtTime(0.6, now);
             gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
             osc1.connect(gain1);
             gain1.connect(ctx.destination);
@@ -658,20 +739,69 @@ BASE_HTML = """<!DOCTYPE html>
             const gain2 = ctx.createGain();
             osc2.type = 'sine';
             osc2.frequency.setValueAtTime(880.00, now + 0.15);
-            gain2.gain.setValueAtTime(0.6, now + 0.15);
-            gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+            gain2.gain.setValueAtTime(0.7, now + 0.15);
+            gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.9);
             osc2.connect(gain2);
             gain2.connect(ctx.destination);
             osc2.start(now + 0.15);
-            osc2.stop(now + 0.8);
+            osc2.stop(now + 0.9);
 
+            // Vibração intensa no celular
             if ('vibrate' in navigator) {
-                navigator.vibrate([200, 100, 250]);
+                navigator.vibrate([300, 150, 300, 150, 450]);
             }
         } catch (e) {
             console.log('Áudio:', e);
         }
     }
+
+    function dispararAlertaNovaOS(chamado) {
+        // 1. Toca som e vibra
+        tocarSomNotificacao();
+
+        // 2. Dispara Notificação do Sistema (funciona com tela minimizada ou no navegador)
+        if ("Notification" in window && Notification.permission === "granted") {
+            try {
+                const titulo = "🚨 Nova Requisição de Manutenção!";
+                const corpo = `OS #${String(chamado.id).padStart(5, '0')}: ${chamado.equipamento}\nSolicitante: ${chamado.solicitante}`;
+                new Notification(titulo, {
+                    body: corpo,
+                    icon: "https://cdn-icons-png.flaticon.com/512/1055/1055672.png"
+                });
+            } catch(e) {}
+        }
+
+        // 3. Exibe Toast flutuante no topo do app
+        const toast = document.getElementById('toastNotificacaoOS');
+        if (toast) {
+            document.getElementById('notifEquipamento').innerText = `OS #${String(chamado.id).padStart(5, '0')} • ${chamado.equipamento}`;
+            document.getElementById('notifSolicitante').innerText = `Solicitante: ${chamado.solicitante}`;
+            toast.style.display = 'block';
+        }
+    }
+
+    function fecharToastNotificacao() {
+        const toast = document.getElementById('toastNotificacaoOS');
+        if (toast) toast.style.display = 'none';
+    }
+
+    // Monitoramento contínuo em tempo real a cada 4 segundos
+    setInterval(function() {
+        fetch('/api/status-sync')
+            .then(r => r.json())
+            .then(data => {
+                if (data.ultimo_id > ultimoIdGravado) {
+                    ultimoIdGravado = data.ultimo_id;
+                    if (data.ultimo_chamado) {
+                        dispararAlertaNovaOS(data.ultimo_chamado);
+                    }
+                    // Se estiver na tela inicial, atualiza a tabela após 3 segundos
+                    if (window.location.pathname === '/') {
+                        setTimeout(() => { window.location.reload(); }, 3500);
+                    }
+                }
+            }).catch(e => {});
+    }, 4000);
     </script>
 </body>
 </html>"""
@@ -827,8 +957,6 @@ INDEX_BODY = """
 
 <script>
 let abaAtiva = 'todas';
-let totalAtual = {{ total_os }};
-let concluidasAtual = {{ os_concluidas }};
 
 function selecionarAba(tipo) {
     abaAtiva = tipo;
@@ -850,25 +978,6 @@ function filtrarOrdens() {
         linha.style.display = (passaAba && passaTexto) ? "" : "none";
     });
 }
-
-setInterval(function() {
-    fetch('/api/status-sync')
-        .then(r => r.json())
-        .then(data => {
-            if (data.total > totalAtual) {
-                tocarSomNotificacao();
-                const banner = document.getElementById('bannerNovaOS');
-                if (banner) {
-                    banner.style.display = 'block';
-                    banner.scrollIntoView({ behavior: 'smooth' });
-                }
-                totalAtual = data.total;
-                setTimeout(() => { window.location.reload(); }, 2500);
-            } else if (data.concluidas !== concluidasAtual) {
-                window.location.reload();
-            }
-        }).catch(e => {});
-}, 6000);
 </script>
 """
 
@@ -1520,7 +1629,6 @@ function processarFotoEdit(input) {
 </script>
 """
 
-# ================= RECIBO TÉCNICO CORRIGIDO =================
 RECIBO_A4_HTML = """<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -1554,17 +1662,17 @@ RECIBO_A4_HTML = """<!DOCTYPE html>
 <body>
 
 <div class="no-print" style="background:#e0f2fe; padding:12px; margin-bottom:15px; border-radius:12px; text-align:center; display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:10px;">
-    <!-- BOTAO IMPRIMIR QUE CHAMA O PRINTMANAGER NO APK E WINDOW.PRINT NO PC -->
+    <!-- IMPRIMIR NO APK OU NAVEGADOR -->
     <a href="/acao/imprimir/{{ os['id'] }}" onclick="executarImpressao(event)" style="padding:10px 22px; font-weight:bold; background:#00639b; color:#fff; border-radius:30px; font-size:10pt; text-decoration:none; display:inline-flex; align-items:center; gap:6px; box-shadow:0 2px 6px rgba(0,99,155,0.3); cursor:pointer;">
         🖨️ Imprimir / Salvar PDF
     </a>
     
-    <!-- BOTAO ABRIR NO CHROME NATIVO -->
+    <!-- ABRIR NO CHROME NATIVO -->
     <a href="/recibo/{{ os['id'] }}?abrir-chrome=1&print=1" target="_blank" style="padding:10px 18px; font-weight:bold; background:#0284c7; color:#fff; border-radius:30px; font-size:10pt; text-decoration:none; display:inline-flex; align-items:center; gap:6px;">
         🌐 Abrir no Chrome
     </a>
     
-    <!-- BOTAO WHATSAPP QUE CHAMA O APLICATIVO DIRETO -->
+    <!-- WHATSAPP DIRETO -->
     <a href="/compartilhar-whatsapp/{{ os['id'] }}" style="padding:10px 20px; font-weight:bold; background:#25d366; color:#fff; border-radius:30px; font-size:10pt; text-decoration:none; display:inline-flex; align-items:center; gap:6px; box-shadow:0 2px 6px rgba(37,211,102,0.35);">
         💬 Enviar no WhatsApp
     </a>
@@ -1576,7 +1684,6 @@ RECIBO_A4_HTML = """<!DOCTYPE html>
 
 <script>
 function executarImpressao(e) {
-    // Se estiver no computador ou Chrome mobile executa window.print()
     if (!navigator.userAgent.includes('wv') && !navigator.userAgent.includes('Version/')) {
         e.preventDefault();
         window.print();
