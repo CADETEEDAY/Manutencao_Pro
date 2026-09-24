@@ -5,7 +5,6 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
 from kivy.utils import platform
 
-# URL oficial da sua aplicacao no Render
 URL_RENDER = "https://manutencao-pro.onrender.com/"
 
 
@@ -37,7 +36,7 @@ class ManutencaoMobileApp(App):
     layout = BoxLayout(orientation="vertical", padding=40, spacing=20)
     layout.add_widget(
         Label(
-            text="Manutenção Predial\n\nConectando ao servidor...",
+            text="Manutenção Predial\n\nSincronizando com a nuvem...",
             halign="center",
             valign="middle",
             font_size="20sp",
@@ -55,6 +54,7 @@ class ManutencaoMobileApp(App):
         WebView = autoclass("android.webkit.WebView")
         WebViewClient = autoclass("android.webkit.WebViewClient")
         WebChromeClient = autoclass("android.webkit.WebChromeClient")
+        WebSettings = autoclass("android.webkit.WebSettings")
         activity = autoclass("org.kivy.android.PythonActivity").mActivity
 
         webview = WebView(activity)
@@ -66,7 +66,11 @@ class ManutencaoMobileApp(App):
         settings.setAllowFileAccess(True)
         settings.setAllowContentAccess(True)
 
-        # Permite tocar o som de alerta automaticamente sem bloqueio do navegador
+        # Força o aplicativo a sempre buscar a versão mais recente sem travar no cache
+        settings.setCacheMode(WebSettings.LOAD_NO_CACHE)
+        webview.clearCache(True)
+
+        # Permite tocar os alarmes sonoros automaticamente
         settings.setMediaPlaybackRequiresUserGesture(False)
 
         webview.setWebViewClient(WebViewClient())
