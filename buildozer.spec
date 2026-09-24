@@ -1,30 +1,53 @@
 [app]
-title = Manutenção
+
+# (str) Title of your application (SEM ACENTOS PARA NÃO TRAVAR O GRADLE)
+title = Manutencao Pro
+
+# (str) Package name
 package.name = manutencao
+
+# (str) Package domain (needed for android/ios packaging)
 package.domain = org.manutencao
 
+# (str) Source code where the main.py lives
 source.dir = .
-source.include_exts = py,png,jpg,kv,atlas,db,html,css,js
 
+# (list) Source files to include
+source.include_exts = py,png,jpg,kv,atlas
+
+# (list) List of directory to exclude (evita estouro de memória no GitHub Actions)
+source.exclude_dirs = tests, bin, venv, .venv, .git, .github, .buildozer
+
+# (str) Application versioning
 version = 1.0.0
 
-requirements = python3,kivy,flask,pyjnius,android,setuptools
+# (list) Application requirements
+# O APK funciona como WebView conectado ao Render; nao compile psycopg2 ou flask aqui
+requirements = python3,kivy,urllib3
 
-# Permissões de rede, câmera e galeria de fotos (legado + Android 13+)
-android.permissions = INTERNET,ACCESS_NETWORK_STATE,CAMERA,READ_EXTERNAL_STORAGE,WRITE_EXTERNAL_STORAGE,READ_MEDIA_IMAGES
-
+# (str) Supported orientation
 orientation = portrait
-fullscreen = 0
-android.api = 33
-android.minapi = 21
-android.ndk = 25b
-android.build_tools_version = 33.0.2
-android.accept_sdk_license = True
 
+# (bool) Fullscreen
+fullscreen = 0
+
+# (list) Permissions
+android.permissions = INTERNET, ACCESS_NETWORK_STATE, CAMERA, READ_EXTERNAL_STORAGE, WRITE_EXTERNAL_STORAGE, READ_MEDIA_IMAGES
+
+# (int) Target Android API
+android.api = 33
+
+# (int) Minimum API your APK will support
+android.minapi = 21
+
+# (str) Android NDK version to use
+android.ndk = 25b
+
+# (bool) Enable AndroidX support
+android.enable_androidx = True
+
+# (list) Architectures to build for
 android.archs = arm64-v8a
 
-entrypoint = main.py
-
-[buildozer]
-log_level = 2
-warn_on_root = 1
+# (bool) Allow backup
+android.allow_backup = True
