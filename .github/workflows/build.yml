@@ -55,9 +55,10 @@ jobs:
         env:
           GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx2048m -Dorg.gradle.daemon=false"
         run: |
-          buildozer -v android debug 2>&1 | tee buildozer_output.log || {
+          buildozer -v android debug > build.log 2>&1 || {
             echo "==================== [ERRO REAL DO COMPILADOR] ===================="
-            grep -B 5 -A 25 -E "\[ERROR\]|STDERR|fatal error|Error:" buildozer_output.log | tail -n 40 || true
+            grep -B 35 "# Command failed:" build.log | head -n 40 || tail -n 40 build.log
+            echo "=================================================================="
             exit 1
           }
 
