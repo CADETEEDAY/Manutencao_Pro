@@ -162,8 +162,9 @@ def init_db():
                 """,
             (senha_hash,),
         )
-      # Converte todos os utilizadores que não sejam o admin para 'comum'
-      db.execute("UPDATE usuarios SET nivel = 'comum' WHERE usuario != 'admin';")
+      db.execute(
+          "UPDATE usuarios SET nivel = 'comum' WHERE usuario != 'admin';"
+      )
     else:
       db.execute("""
                 CREATE TABLE IF NOT EXISTS ordens_servico (
@@ -235,8 +236,9 @@ def init_db():
                 """,
             (senha_hash,),
         )
-      # Converte todos os utilizadores que não sejam o admin para 'comum'
-      db.execute("UPDATE usuarios SET nivel = 'comum' WHERE usuario != 'admin';")
+      db.execute(
+          "UPDATE usuarios SET nivel = 'comum' WHERE usuario != 'admin';"
+      )
 
 
 init_db()
@@ -290,6 +292,32 @@ def obter_configuracoes():
   return cfg
 
 
+def montar_texto_whatsapp(os_item, cfg):
+  empresa = cfg["nome_empresa"] if cfg else "Manutenção Predial"
+  msg = f"""*COMPROVANTE DE MANUTENÇÃO* 🛠️
+-----------------------------------
+🏢 *Empresa:* {empresa}
+📋 *OS Nº:* #{os_item['id']:05d}
+📌 *Status:* {os_item['status']}
+
+🔧 *Equipamento/Local:* {os_item['equipamento']}
+👤 *Solicitante:* {os_item['solicitante']}
+👷 *Técnico Responsável:* {os_item['operador'] or 'Não atribuído'}
+📅 *Data Conclusão:* {os_item['data_finalizacao'] or os_item['data_abertura']}
+
+⚠️ *Defeito / Ocorrência:*
+{os_item['problema']}
+
+✅ *Serviço Técnico Executado:*
+{os_item['servico_executado'] or 'Em andamento'}
+
+📦 *Peças / Insumos Utilizados:*
+{os_item['pecas'] or 'Nenhum material extra cadastrado'}
+-----------------------------------
+_Comprovante emitido via Sistema de Manutenção_"""
+  return msg
+
+
 @app.context_processor
 def injetar_usuario_logado():
   info = {
@@ -322,7 +350,6 @@ def checar_autenticacao():
       "ping",
       "api_status_sync",
       "compartilhar_whatsapp",
-      "acao_imprimir",
   ]
   if request.endpoint not in rotas_livres and "usuario" not in session:
     return redirect(url_for("login"))
@@ -392,47 +419,9 @@ def api_status_sync():
   })
 
 
-@app.route("/acao/imprimir/<int:os_id>")
-def acao_imprimir(os_id):
-  return redirect(url_for("recibo", os_id=os_id) + "?print=1")
-
-
 @app.route("/compartilhar-whatsapp/<int:os_id>")
 def compartilhar_whatsapp(os_id):
-  cfg = obter_configuracoes()
-  with get_db() as db:
-    os_item = db.execute(
-        "SELECT * FROM ordens_servico WHERE id = ?", (os_id,)
-    ).fetchone()
-
-  if not os_item:
-    return "Ordem de Serviço não encontrada", 404
-
-  empresa = cfg["nome_empresa"] if cfg else "Manutenção Predial"
-  mensagem = f"""*COMPROVANTE DE MANUTENÇÃO* 🛠️
------------------------------------
-🏢 *Empresa:* {empresa}
-📋 *OS Nº:* #{os_item['id']:05d}
-📌 *Status:* {os_item['status']}
-
-🔧 *Equipamento/Local:* {os_item['equipamento']}
-👤 *Solicitante:* {os_item['solicitante']}
-👷 *Técnico Responsável:* {os_item['operador'] or 'Não atribuído'}
-📅 *Data Conclusão:* {os_item['data_finalizacao'] or os_item['data_abertura']}
-
-⚠️ *Defeito / Ocorrência:*
-{os_item['problema']}
-
-✅ *Serviço Técnico Executado:*
-{os_item['servico_executado'] or 'Em andamento'}
-
-📦 *Peças / Insumos Utilizados:*
-{os_item['pecas'] or 'Nenhum material extra cadastrado'}
------------------------------------
-_Comprovante emitido via Sistema de Manutenção_"""
-
-  texto_url = urllib.parse.quote(mensagem)
-  return redirect(f"https://api.whatsapp.com/send?text={texto_url}")
+  return redirect(url_for("recibo", os_id=os_id) + "?share=1")
 
 
 # ================= TEMPLATES VISUAIS =================
@@ -1421,7 +1410,6 @@ function processarLogo(input) {
 </script>
 """
 
-# ================= TELA DE UTILIZADORES COM RESTRIÇÃO =================
 USUARIOS_BODY = """
 <div class="row justify-content-center">
     <div class="col-12 col-lg-10">
@@ -1677,6 +1665,7 @@ function processarFotoEdit(input) {
 </script>
 """
 
+# ================= RECIBO CORRIGIDO: WHATSAPP E IMPRESSÃO ROBUSTOS =================
 RECIBO_A4_HTML = """<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -1710,17 +1699,20 @@ RECIBO_A4_HTML = """<!DOCTYPE html>
 <body>
 
 <div class="no-print" style="background:#e0f2fe; padding:12px; margin-bottom:15px; border-radius:12px; text-align:center; display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:10px;">
-    <a href="/acao/imprimir/{{ os['id'] }}" onclick="executarImpressao(event)" style="padding:10px 22px; font-weight:bold; background:#00639b; color:#fff; border-radius:30px; font-size:10pt; text-decoration:none; display:inline-flex; align-items:center; gap:6px; box-shadow:0 2px 6px rgba(0,99,155,0.3); cursor:pointer;">
+    <!-- IMPRIMIR: ACIONA O SPOOLER NATIVO NO APK E WINDOW.PRINT NO NAVEGADOR -->
+    <button type="button" onclick="acionarImpressao()" style="padding:10px 22px; font-weight:bold; background:#00639b; color:#fff; border:none; border-radius:30px; font-size:10pt; cursor:pointer; display:inline-flex; align-items:center; gap:6px; box-shadow:0 2px 6px rgba(0,99,155,0.3);">
         🖨️ Imprimir / Salvar PDF
-    </a>
+    </button>
     
-    <a href="/recibo/{{ os['id'] }}?abrir-chrome=1&print=1" target="_blank" style="padding:10px 18px; font-weight:bold; background:#0284c7; color:#fff; border-radius:30px; font-size:10pt; text-decoration:none; display:inline-flex; align-items:center; gap:6px;">
-        🌐 Abrir no Chrome
-    </a>
-    
-    <a href="/compartilhar-whatsapp/{{ os['id'] }}" style="padding:10px 20px; font-weight:bold; background:#25d366; color:#fff; border-radius:30px; font-size:10pt; text-decoration:none; display:inline-flex; align-items:center; gap:6px; box-shadow:0 2px 6px rgba(37,211,102,0.35);">
+    <!-- WHATSAPP: ACIONA O SHARE NATIVO DO ANDROID E O INTENT SEM ERRO DE URL -->
+    <button type="button" onclick="acionarWhatsApp()" style="padding:10px 20px; font-weight:bold; background:#25d366; color:#fff; border:none; border-radius:30px; font-size:10pt; cursor:pointer; display:inline-flex; align-items:center; gap:6px; box-shadow:0 2px 6px rgba(37,211,102,0.35);">
         💬 Enviar no WhatsApp
-    </a>
+    </button>
+    
+    <!-- COPIAR TEXTO DO COMPROVANTE -->
+    <button type="button" id="btnCopiar" onclick="copiarTexto()" style="padding:10px 18px; font-weight:bold; background:#ffffff; color:#0f172a; border:1px solid #cbd5e1; border-radius:30px; font-size:10pt; cursor:pointer; display:inline-flex; align-items:center; gap:6px;">
+        📋 Copiar Texto
+    </button>
     
     <a href="/" style="padding:10px 16px; font-size:9pt; color:#475569; text-decoration:none; font-weight:600;">
         ⬅ Voltar ao Painel
@@ -1728,14 +1720,73 @@ RECIBO_A4_HTML = """<!DOCTYPE html>
 </div>
 
 <script>
-function executarImpressao(e) {
+const textoWhatsApp = {{ texto_whatsapp | tojson }};
+
+function acionarWhatsApp() {
+    // 1. Tenta acionar a Web Share API do Android (abre o WhatsApp oficial diretamente)
+    if (navigator.share) {
+        navigator.share({
+            title: 'Comprovante OS #{{ "%05d" % os["id"] }}',
+            text: textoWhatsApp
+        }).catch(err => {
+            dispararCanalNativoWhatsApp();
+        });
+    } else {
+        dispararCanalNativoWhatsApp();
+    }
+}
+
+function dispararCanalNativoWhatsApp() {
+    // Notifica o aplicativo nativo Android via título
+    document.title = 'CMD_WHATSAPP:' + encodeURIComponent(textoWhatsApp);
+    
+    // Se estiver em navegador desktop/mobile normal
     if (!navigator.userAgent.includes('wv') && !navigator.userAgent.includes('Version/')) {
-        e.preventDefault();
+        window.open('https://api.whatsapp.com/send?text=' + encodeURIComponent(textoWhatsApp), '_blank');
+    }
+}
+
+function acionarImpressao() {
+    // Aciona o Spooler de Impressão nativo do Android no APK
+    document.title = 'CMD_PRINT:{{ os["id"] }}';
+    
+    // Se for no navegador do computador ou Chrome
+    if (!navigator.userAgent.includes('wv') && !navigator.userAgent.includes('Version/')) {
         window.print();
     }
 }
+
+function copiarTexto() {
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(textoWhatsApp).then(mostrarSucessoCopia).catch(copiaFallback);
+    } else {
+        copiaFallback();
+    }
+}
+
+function copiaFallback() {
+    const t = document.createElement('textarea');
+    t.value = textoWhatsApp;
+    document.body.appendChild(t);
+    t.select();
+    document.execCommand('copy');
+    document.body.removeChild(t);
+    mostrarSucessoCopia();
+}
+
+function mostrarSucessoCopia() {
+    const btn = document.getElementById('btnCopiar');
+    if (btn) {
+        btn.innerHTML = '✅ Copiado!';
+        setTimeout(() => { btn.innerHTML = '📋 Copiar Texto'; }, 2500);
+    }
+}
+
+if (window.location.search.indexOf('share=1') !== -1) {
+    setTimeout(acionarWhatsApp, 400);
+}
 if (window.location.search.indexOf('print=1') !== -1) {
-    setTimeout(function() { window.print(); }, 500);
+    setTimeout(acionarImpressao, 400);
 }
 </script>
 
@@ -1964,7 +2015,11 @@ def recibo(os_id):
     ).fetchone()
   if not os_item:
     return "Ordem de Serviço não encontrada", 404
-  return render_template_string(RECIBO_A4_HTML, cfg=cfg, os=os_item)
+
+  texto_whatsapp = montar_texto_whatsapp(os_item, cfg)
+  return render_template_string(
+      RECIBO_A4_HTML, cfg=cfg, os=os_item, texto_whatsapp=texto_whatsapp
+  )
 
 
 @app.route("/recibo/<int:os_id>/pdf")
@@ -2248,7 +2303,6 @@ def editar_usuario(user_id):
     remover_foto = request.form.get("remover_foto") == "1"
     foto_capturada = request.form.get("foto_base64_capturada", "")
 
-    # Usuário comum não pode mudar seu próprio nível para admin
     if eh_admin:
       nivel = request.form.get("nivel", usuario_alvo["nivel"] or "comum")
     else:
