@@ -1,45 +1,45 @@
 [app]
 
-# (str) Título da aplicação
+# (str) Titulo da aplicacao
 title = Manutencao Pro
 
 # (str) Nome do pacote
 package.name = manutencao
 
-# (str) Domínio do pacote
+# (str) Dominio do pacote
 package.domain = org.manutencao
 
-# (str) Diretório do código-fonte
+# (str) Diretorio do codigo-fonte
 source.dir = .
 
-# (list) Extensões incluídas
+# (list) Extensoes incluidas
 source.include_exts = py,png,jpg,kv,atlas
 
-# (str) Versão da aplicação
+# (str) Versao da aplicacao
 version = 1.0.0
 
-# (list) Dependências da aplicação (o Kivy já inclui pyjnius e sdl2 automaticamente)
-requirements = python3,kivy==2.3.0
+# (list) Dependencias da aplicacao
+requirements = python3,kivy
 
-# (str) Orientação
+# (str) Orientacao
 orientation = portrait
 
-# (bool) Ecrã inteiro
+# (bool) Ecra inteiro
 fullscreen = 0
 
-# (list) Permissões necessárias
+# (list) Permissoes do Android
 android.permissions = INTERNET,ACCESS_NETWORK_STATE,CAMERA,READ_EXTERNAL_STORAGE,WRITE_EXTERNAL_STORAGE,READ_MEDIA_IMAGES
 
-# (int) Versão da API de destino do Android
+# (int) Versao da API de destino do Android
 android.api = 33
 
-# (int) Versão mínima da API suportada
+# (int) Versao minima da API suportada
 android.minapi = 21
 
-# (int) Versão da API do NDK
+# (int) Versao da API do NDK
 android.ndk_api = 21
 
-# (str) Versão do NDK compatível
+# (str) Versao compativel do NDK
 android.ndk = 25b
 
 # (bool) Aceitar licenças automaticamente
@@ -48,13 +48,13 @@ android.accept_sdk_license = True
 # (str) Ponto de entrada nativo do Kivy
 android.entrypoint = org.kivy.android.PythonActivity
 
-# (str) Tema visual nativo estável
+# (str) Tema visual nativo compativel
 android.apptheme = @android:style/Theme.NoTitleBar
 
 # (list) Arquitetura suportada
 android.archs = arm64-v8a
 
-# (bool) Desativado para compatibilidade com o tema nativo
+# (bool) Desativado para compatibilidade nativa
 android.enable_androidx = False
 
 # (bool) Copiar bibliotecas compiladas
@@ -63,9 +63,12 @@ android.copy_libs = 1
 # (bool) Manter janela ativa
 android.window = 1
 
+# (str) Versao estavel que compila Python 3.11.5 oficial (impede o Python 3.14 instavel)
+p4a.branch = v2024.01.21
+
 [buildozer]
 
-# (int) Nível de registos detalhado
+# (int) Nivel de registos
 log_level = 2
 
 # (int) Aviso de root
