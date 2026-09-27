@@ -39,7 +39,7 @@ android.minapi = 21
 # (int) Versao da API do NDK
 android.ndk_api = 21
 
-# (str) Versao compativel do NDK
+# (str) Versao estavel e compativel do NDK
 android.ndk = 25b
 
 # (bool) Aceitar licenças automaticamente
@@ -62,9 +62,6 @@ android.copy_libs = 1
 
 # (bool) Manter janela ativa
 android.window = 1
-
-# (str) Versao estavel que compila Python 3.11.5 oficial (impede o Python 3.14 instavel)
-p4a.branch = v2024.01.21
 
 [buildozer]
 
