@@ -38,7 +38,7 @@ class ManutencaoMobileApp(App):
     layout = BoxLayout(orientation="vertical", padding=40, spacing=20)
     layout.add_widget(
         Label(
-            text="Manutenção Predial\n\nConectando aos servidores...",
+            text="Manutenção Predial\n\nA ligar aos servidores...",
             halign="center",
             valign="middle",
             font_size="20sp",
@@ -71,61 +71,75 @@ class ManutencaoMobileApp(App):
         self.webview.clearCache(True)
         settings.setMediaPlaybackRequiresUserGesture(False)
 
-        # Utiliza clientes nativos diretos (sem subclasses que quebram o PyJNIus)
         self.webview.setWebViewClient(WebViewClient())
         self.webview.setWebChromeClient(WebChromeClient())
 
-        # Exibe a interface web imediatamente
         activity.setContentView(self.webview)
         self.webview.loadUrl(URL_RENDER)
 
-        # Inicia o monitor de links para disparar WhatsApp e Chrome externamente
-        Clock.schedule_interval(self.monitorar_links_externos, 0.4)
+        # Monitor de chamadas nativas do WhatsApp e Impressão
+        Clock.schedule_interval(self.checar_comandos_nativos, 0.25)
 
       _criar_e_exibir()
     except Exception as erro:
       print(f"Erro fatal WebView: {erro}")
 
-  def monitorar_links_externos(self, dt):
-    """Monitora a navegação da WebView e redireciona WhatsApp e Impressão para os apps nativos."""
+  def checar_comandos_nativos(self, dt):
     if not self.webview:
       return
-    try:
-      url_java = self.webview.getUrl()
-      if not url_java:
-        return
-      url = str(url_java)
 
-      # 1. Dispara o aplicativo do WhatsApp instalado no celular
-      if "whatsapp.com" in url or "wa.me" in url or "whatsapp:" in url:
-        from jnius import autoclass
+    from android.runnable import run_on_ui_thread
+    from jnius import autoclass
 
-        Intent = autoclass("android.content.Intent")
-        Uri = autoclass("android.net.Uri")
-        activity = autoclass("org.kivy.android.PythonActivity").mActivity
+    @run_on_ui_thread
+    def _verificar():
+      try:
+        title_java = self.webview.getTitle()
+        if not title_java:
+          return
+        title = str(title_java)
 
-        if self.webview.canGoBack():
-          self.webview.goBack()
+        # 1. DISPARAR APLICATIVO DO WHATSAPP VIA INTENT NATIVO
+        if title.startswith("CMD_WHATSAPP:"):
+          self.webview.evaluateJavascript("document.title = 'Recibo';", None)
+          texto_enc = title.replace("CMD_WHATSAPP:", "")
+          import urllib.parse
 
-        intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-        activity.startActivity(intent)
+          texto = urllib.parse.unquote(texto_enc)
 
-      # 2. Dispara o Chrome para impressão e download de PDF com spooler nativo
-      elif "abrir-chrome=1" in url:
-        from jnius import autoclass
+          Intent = autoclass("android.content.Intent")
+          activity = autoclass("org.kivy.android.PythonActivity").mActivity
 
-        Intent = autoclass("android.content.Intent")
-        Uri = autoclass("android.net.Uri")
-        activity = autoclass("org.kivy.android.PythonActivity").mActivity
+          intent = Intent(Intent.ACTION_SEND)
+          intent.setType("text/plain")
+          intent.putExtra(Intent.EXTRA_TEXT, texto)
+          intent.setPackage("com.whatsapp")
+          try:
+            activity.startActivity(intent)
+          except Exception:
+            intent.setPackage(None)
+            activity.startActivity(
+                Intent.createChooser(intent, "Partilhar Recibo via")
+            )
 
-        if self.webview.canGoBack():
-          self.webview.goBack()
+        # 2. DISPARAR O PRINTMANAGER NATIVO DO ANDROID (A4 / PDF)
+        elif title.startswith("CMD_PRINT:"):
+          self.webview.evaluateJavascript("document.title = 'Recibo';", None)
+          Context = autoclass("android.content.Context")
+          Builder = autoclass("android.print.PrintAttributes$Builder")
+          activity = autoclass("org.kivy.android.PythonActivity").mActivity
 
-        intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-        activity.startActivity(intent)
+          printManager = activity.getSystemService(Context.PRINT_SERVICE)
+          job_name = "Recibo_OS"
+          printAdapter = self.webview.createPrintDocumentAdapter(job_name)
 
-    except Exception as e:
-      print(f"Erro no monitor de links: {e}")
+          builder = Builder()
+          printManager.print(job_name, printAdapter, builder.build())
+
+      except Exception as e:
+        pass
+
+    _verificar()
 
 
 if __name__ == "__main__":
