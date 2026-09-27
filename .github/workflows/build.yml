@@ -20,11 +20,11 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Configurar Java 17
+      - name: Configurar Java 11 (Compatível com o Gradle do Kivy)
         uses: actions/setup-java@v4
         with:
           distribution: "temurin"
-          java-version: "17"
+          java-version: "11"
 
       - name: Instalar ferramentas do sistema
         run: |
@@ -53,16 +53,23 @@ jobs:
 
       - name: Compilar APK com Buildozer
         run: |
-          # Limpa variáveis de ambiente do NDK do GitHub Actions que forçam versões incompatíveis
           unset ANDROID_NDK
           unset ANDROID_NDK_HOME
           unset ANDROID_NDK_ROOT
           unset ANDROID_NDK_LATEST_HOME
           export GRADLE_OPTS="-Dorg.gradle.jvmargs=-Xmx2048m -Dorg.gradle.daemon=false"
           
-          # Executa a compilação e oculta as mais de 100 linhas inúteis de ENVIRONMENT
-          set -o pipefail
-          buildozer -v android debug 2>&1 | grep -v "^#     "
+          set +e
+          buildozer -v android debug 2>&1 | tee build_raw.log
+          STATUS=$?
+          
+          if [ $STATUS -ne 0 ]; then
+            echo ""
+            echo "==================== [ERRO REAL DO GRADLE] ===================="
+            grep -B 45 "# Command failed:" build_raw.log || tail -n 45 build_raw.log
+            echo "==============================================================="
+            exit $STATUS
+          fi
 
       - name: Enviar APK gerado para Artifacts
         uses: actions/upload-artifact@v4
