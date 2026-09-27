@@ -1,58 +1,69 @@
 [app]
 
-# (str) Title of your application (sem acentos para não quebrar o Gradle)
+# (str) Título da aplicação
 title = Manutencao Pro
 
-# (str) Package name
+# (str) Nome do pacote
 package.name = manutencao
 
-# (str) Package domain
+# (str) Domínio do pacote
 package.domain = org.manutencao
 
-# (str) Source code where the main.py lives
+# (str) Diretório onde se encontra o main.py
 source.dir = .
 
-# (list) Source files to include
+# (list) Extensões de ficheiros a incluir
 source.include_exts = py,png,jpg,kv,atlas
 
-# (list) List of directory to exclude (evita estouro de memória no GitHub Actions)
-source.exclude_dirs = tests, bin, venv, .venv, .git, .github, .buildozer
-
-# (str) Application versioning
+# (str) Versão da aplicação
 version = 1.0.0
 
-# (list) Application requirements
-requirements = python3,kivy,urllib3
+# (list) Dependências da aplicação (Python e Kivy com PyJNIus para chamadas nativas)
+requirements = python3,kivy==2.3.0,pyjnius
 
-# (str) Supported orientation
+# (str) Orientação suportada (ecrã na vertical)
 orientation = portrait
 
-# (bool) Fullscreen
+# (bool) Ecrã inteiro (0 = barra de estado visível, 1 = ecrã inteiro)
 fullscreen = 0
 
-# (list) Permissions
-android.permissions = INTERNET, ACCESS_NETWORK_STATE, CAMERA, READ_EXTERNAL_STORAGE, WRITE_EXTERNAL_STORAGE, READ_MEDIA_IMAGES
+# (list) Permissões Android necessárias para rede, câmara e galeria
+android.permissions = INTERNET,ACCESS_NETWORK_STATE,CAMERA,READ_EXTERNAL_STORAGE,WRITE_EXTERNAL_STORAGE,READ_MEDIA_IMAGES
 
-# (int) Target Android API
+# (int) Versão da API de destino do Android
 android.api = 33
 
-# (int) Minimum API your APK will support
+# (int) Versão mínima da API do Android suportada
 android.minapi = 21
 
-# (str) Android NDK version to use
-android.ndk = 25b
+# (int) Versão da API do NDK a utilizar
+android.ndk_api = 21
 
-# (str) Android Build Tools version (CORRIGE O ERRO DO AIDL)
-android.build_tools_version = 33.0.2
-
-# (bool) Aceitar licenças do SDK automaticamente
+# (bool) Aceitar automaticamente as licenças do SDK
 android.accept_sdk_license = True
 
-# (bool) Enable AndroidX support
-android.enable_androidx = True
+# (str) Ponto de entrada nativo do Kivy
+android.entrypoint = org.kivy.android.PythonActivity
 
-# (list) Architectures to build for
+# (str) Tema visual da aplicação
+android.apptheme = @android:style/Theme.NoTitleBar
+
+# (list) Arquiteturas suportadas (focada em telemóveis modernos de 64 bits)
 android.archs = arm64-v8a
 
-# (bool) Allow backup
-android.allow_backup = True
+# (bool) Ativar suporte ao AndroidX
+android.enable_androidx = True
+
+# (bool) Copiar bibliotecas em vez de criar diretório de ligação
+android.copy_libs = 1
+
+# (bool) Manter a barra de navegação/janela
+android.window = 1
+
+[buildozer]
+
+# (int) Nível de registos (2 = detalhado para depuração no GitHub Actions)
+log_level = 2
+
+# (int) Apresentar aviso caso seja executado como root
+warn_on_root = 1
