@@ -26,7 +26,7 @@ jobs:
           distribution: "temurin"
           java-version: "17"
 
-      - name: Instalar dependências essenciais do sistema e AIDL
+      - name: Instalar ferramentas do sistema
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -45,6 +45,12 @@ jobs:
             unzip \
             zip \
             zlib1g-dev
+
+      - name: Pré-configurar licenças oficiais do Android
+        run: |
+          mkdir -p ~/.buildozer/android/platform/android-sdk/licenses
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          cp -r $ANDROID_HOME/licenses/* ~/.buildozer/android/platform/android-sdk/licenses/ || true
 
       - name: Instalar Buildozer e Cython
         run: |
