@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Baixar código do repositório
+      - name: Baixar codigo do repositorio
         uses: actions/checkout@v4
 
       - name: Configurar Python 3.11
@@ -46,18 +46,18 @@ jobs:
             zip \
             zlib1g-dev
 
-      - name: Instalar Buildozer e Cython
+      - name: Instalar Buildozer e Cython compativel com p4a estavel
         run: |
           python -m pip install --upgrade pip
-          pip install --upgrade buildozer cython virtualenv wheel
+          pip install --upgrade buildozer "cython<3.0" virtualenv wheel
 
       - name: Compilar APK com Buildozer
         env:
           GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx2048m -Dorg.gradle.daemon=false"
         run: |
-          buildozer -v android debug > build.log 2>&1 || {
+          buildozer -v android debug 2>&1 | tee build.log || {
             echo "==================== [ERRO REAL DO COMPILADOR] ===================="
-            grep -B 35 "# Command failed:" build.log | head -n 40 || tail -n 40 build.log
+            grep -i -C 3 -E "fatal error:|error: |\[ERROR\]:" build.log | tail -n 50 || tail -n 50 build.log
             echo "=================================================================="
             exit 1
           }
