@@ -26,36 +26,25 @@ jobs:
           distribution: "temurin"
           java-version: "17"
 
-      - name: Instalar dependências do sistema e AIDL
+      - name: Instalar dependências essenciais do sistema e AIDL
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             aidl \
-            build-essential \
-            git \
-            ffmpeg \
-            libsdl2-dev \
-            libsdl2-image-dev \
-            libsdl2-mixer-dev \
-            libsdl2-ttf-dev \
-            libportmidi-dev \
-            libswscale-dev \
-            libavformat-dev \
-            libavcodec-dev \
-            zlib1g-dev \
-            libgstreamer1.0-dev \
-            gstreamer1.0-plugins-base \
-            gstreamer1.0-plugins-good \
-            libssl-dev \
-            libffi-dev \
             autoconf \
             automake \
+            build-essential \
+            ccache \
+            cmake \
+            git \
+            libffi-dev \
+            libssl-dev \
             libtool \
-            pkg-config
-
-      - name: Aceitar licenças do Android SDK
-        run: |
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+            patch \
+            pkg-config \
+            unzip \
+            zip \
+            zlib1g-dev
 
       - name: Instalar Buildozer e Cython
         run: |
