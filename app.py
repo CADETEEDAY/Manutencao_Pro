@@ -12,27 +12,14 @@ from flask import (
     redirect,
     render_template_string,
     request,
-    send_file,
     session,
     url_for,
 )
 from werkzeug.security import check_password_hash, generate_password_hash
 
-try:
-  import weasyprint
-
-  TEM_WEASYPRINT = True
-except ImportError:
-  TEM_WEASYPRINT = False
-
 app = Flask(__name__)
 app.secret_key = "chave_mestra_manutencao_predial_segura_2026"
 
-GLOBAL_WEBVIEW = None
-GLOBAL_ACTIVITY = None
-LOCAL_IP = "127.0.0.1"
-
-# ================= CAMADA HÍBRIDA DE BANCO (POSTGRESQL / SQLITE) =================
 DATABASE_URL = os.environ.get("DATABASE_URL")
 IS_POSTGRES = False
 
@@ -57,8 +44,7 @@ class DBWrapper:
   def execute(self, sql, params=None):
     cur = self.conn.cursor()
     if self.is_pg:
-      sql_formatado = sql.replace("?", "%s")
-      cur.execute(sql_formatado, params or ())
+      cur.execute(sql.replace("?", "%s"), params or ())
     else:
       cur.execute(sql, params or ())
     return cur
@@ -84,214 +70,196 @@ def get_db():
         DATABASE_URL, cursor_factory=psycopg2.extras.DictCursor
     )
     return DBWrapper(conn, is_pg=True)
-  else:
-    app_dir = os.environ.get(
-        "ANDROID_PRIVATE", os.path.dirname(os.path.abspath(__file__))
-    )
-    db_path = os.path.join(app_dir, "manutencao.db")
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    return DBWrapper(conn, is_pg=False)
+  app_dir = os.environ.get(
+      "ANDROID_PRIVATE", os.path.dirname(os.path.abspath(__file__))
+  )
+  conn = sqlite3.connect(os.path.join(app_dir, "manutencao.db"))
+  conn.row_factory = sqlite3.Row
+  return DBWrapper(conn, is_pg=False)
 
 
 def init_db():
   with get_db() as db:
     if IS_POSTGRES:
-      db.execute("""
-                CREATE TABLE IF NOT EXISTS ordens_servico (
-                    id SERIAL PRIMARY KEY,
-                    equipamento TEXT NOT NULL,
-                    solicitante TEXT NOT NULL,
-                    problema TEXT NOT NULL,
-                    data_abertura TEXT NOT NULL,
-                    operador TEXT,
-                    data_finalizacao TEXT,
-                    servico_executado TEXT,
-                    pecas TEXT,
-                    status TEXT NOT NULL,
-                    foto_problema TEXT
-                );
-            """)
+      db.execute("""CREATE TABLE IF NOT EXISTS ordens_servico (
+                id SERIAL PRIMARY KEY, equipamento TEXT NOT NULL, solicitante TEXT NOT NULL, problema TEXT NOT NULL,
+                data_abertura TEXT NOT NULL, operador TEXT, data_finalizacao TEXT, servico_executado TEXT, pecas TEXT,
+                status TEXT NOT NULL, foto_problema TEXT);""")
       db.execute(
           "ALTER TABLE ordens_servico ADD COLUMN IF NOT EXISTS foto_problema"
           " TEXT;"
       )
-      db.execute("""
-                CREATE TABLE IF NOT EXISTS preventivas (
-                    id SERIAL PRIMARY KEY,
-                    equipamento TEXT NOT NULL,
-                    solicitante TEXT NOT NULL,
-                    descricao TEXT NOT NULL,
-                    periodicidade_dias INTEGER NOT NULL,
-                    proxima_data TEXT NOT NULL,
-                    ultima_geracao TEXT,
-                    ativo INTEGER DEFAULT 1
-                );
-            """)
-      db.execute("""
-                CREATE TABLE IF NOT EXISTS configuracoes (
-                    id INTEGER PRIMARY KEY,
-                    nome_empresa TEXT,
-                    subtitulo TEXT,
-                    contato TEXT,
-                    logo_base64 TEXT
-                );
-            """)
-      db.execute("""
-                INSERT INTO configuracoes (id, nome_empresa, subtitulo, contato, logo_base64)
-                VALUES (1, 'Manutenção Predial', 'Gestão Operacional de Serviços', '', '')
-                ON CONFLICT (id) DO NOTHING;
-            """)
-      db.execute("""
-                CREATE TABLE IF NOT EXISTS usuarios (
-                    id SERIAL PRIMARY KEY,
-                    usuario TEXT UNIQUE NOT NULL,
-                    senha TEXT NOT NULL,
-                    nome TEXT NOT NULL,
-                    nivel TEXT DEFAULT 'comum',
-                    foto_base64 TEXT
-                );
-            """)
-      cur = db.execute("SELECT id FROM usuarios WHERE usuario = 'admin'")
-      if not cur.fetchone():
-        senha_hash = generate_password_hash("12345")
-        db.execute(
-            """
-                    INSERT INTO usuarios (usuario, senha, nome, nivel, foto_base64)
-                    VALUES ('admin', ?, 'Administrador Principal', 'admin', '')
-                """,
-            (senha_hash,),
-        )
-      db.execute(
-          "UPDATE usuarios SET nivel = 'comum' WHERE usuario != 'admin';"
+      db.execute("""CREATE TABLE IF NOT EXISTS preventivas (
+                id SERIAL PRIMARY KEY, equipamento TEXT NOT NULL, solicitante TEXT NOT NULL, descricao TEXT NOT NULL,
+                periodicidade_dias INTEGER NOT NULL, proxima_data TEXT NOT NULL, ultima_geracao TEXT, ativo INTEGER DEFAULT 1);"""
       )
+      db.execute("""CREATE TABLE IF NOT EXISTS configuracoes (
+                id INTEGER PRIMARY KEY, nome_empresa TEXT, subtitulo TEXT, contato TEXT, logo_base64 TEXT);"""
+      )
+      db.execute(
+          "INSERT INTO configuracoes (id, nome_empresa, subtitulo) VALUES (1,"
+          " 'Manutenção Predial', 'Gestão Operacional') ON CONFLICT (id) DO"
+          " NOTHING;"
+      )
+      db.execute("""CREATE TABLE IF NOT EXISTS usuarios (
+                id SERIAL PRIMARY KEY, usuario TEXT UNIQUE NOT NULL, senha TEXT NOT NULL, nome TEXT NOT NULL,
+                nivel TEXT DEFAULT 'comum', foto_base64 TEXT);""")
+      if not db.execute(
+          "SELECT id FROM usuarios WHERE usuario = 'admin'"
+      ).fetchone():
+        db.execute(
+            "INSERT INTO usuarios (usuario, senha, nome, nivel) VALUES"
+            " ('admin', ?, 'Administrador Principal', 'admin')",
+            (generate_password_hash("12345"),),
+        )
     else:
-      db.execute("""
-                CREATE TABLE IF NOT EXISTS ordens_servico (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    equipamento TEXT NOT NULL,
-                    solicitante TEXT NOT NULL,
-                    problema TEXT NOT NULL,
-                    data_abertura TEXT NOT NULL,
-                    operador TEXT,
-                    data_finalizacao TEXT,
-                    servico_executado TEXT,
-                    pecas TEXT,
-                    status TEXT NOT NULL,
-                    foto_problema TEXT
-                );
-            """)
-      cur = db.execute("PRAGMA table_info(ordens_servico)")
-      cols = [c[1] for c in cur.fetchall()]
+      db.execute("""CREATE TABLE IF NOT EXISTS ordens_servico (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, equipamento TEXT NOT NULL, solicitante TEXT NOT NULL, problema TEXT NOT NULL,
+                data_abertura TEXT NOT NULL, operador TEXT, data_finalizacao TEXT, servico_executado TEXT, pecas TEXT,
+                status TEXT NOT NULL, foto_problema TEXT);""")
+      cols = [
+          c[1]
+          for c in db.execute("PRAGMA table_info(ordens_servico)").fetchall()
+      ]
       if "foto_problema" not in cols:
         db.execute("ALTER TABLE ordens_servico ADD COLUMN foto_problema TEXT")
-
-      db.execute("""
-                CREATE TABLE IF NOT EXISTS preventivas (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    equipamento TEXT NOT NULL,
-                    solicitante TEXT NOT NULL,
-                    descricao TEXT NOT NULL,
-                    periodicidade_dias INTEGER NOT NULL,
-                    proxima_data TEXT NOT NULL,
-                    ultima_geracao TEXT,
-                    ativo INTEGER DEFAULT 1
-                );
-            """)
-      db.execute("""
-                CREATE TABLE IF NOT EXISTS configuracoes (
-                    id INTEGER PRIMARY KEY,
-                    nome_empresa TEXT,
-                    subtitulo TEXT,
-                    contato TEXT,
-                    logo_base64 TEXT
-                );
-            """)
-      db.execute("""
-                INSERT OR IGNORE INTO configuracoes (id, nome_empresa, subtitulo, contato, logo_base64)
-                VALUES (1, 'Manutenção Predial', 'Gestão Operacional de Serviços', '', '')
-            """)
-      db.execute("""
-                CREATE TABLE IF NOT EXISTS usuarios (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    usuario TEXT UNIQUE NOT NULL,
-                    senha TEXT NOT NULL,
-                    nome TEXT NOT NULL,
-                    nivel TEXT DEFAULT 'comum',
-                    foto_base64 TEXT
-                );
-            """)
-      cur_u = db.execute("PRAGMA table_info(usuarios)")
-      cols_u = [c[1] for c in cur_u.fetchall()]
-      if "foto_base64" not in cols_u:
-        db.execute("ALTER TABLE usuarios ADD COLUMN foto_base64 TEXT")
-
-      cur_adm = db.execute("SELECT id FROM usuarios WHERE usuario = 'admin'")
-      if not cur_adm.fetchone():
-        senha_hash = generate_password_hash("12345")
-        db.execute(
-            """
-                    INSERT INTO usuarios (usuario, senha, nome, nivel, foto_base64)
-                    VALUES ('admin', ?, 'Administrador Principal', 'admin', '')
-                """,
-            (senha_hash,),
-        )
-      db.execute(
-          "UPDATE usuarios SET nivel = 'comum' WHERE usuario != 'admin';"
+      db.execute("""CREATE TABLE IF NOT EXISTS preventivas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, equipamento TEXT NOT NULL, solicitante TEXT NOT NULL, descricao TEXT NOT NULL,
+                periodicidade_dias INTEGER NOT NULL, proxima_data TEXT NOT NULL, ultima_geracao TEXT, ativo INTEGER DEFAULT 1);"""
       )
+      db.execute("""CREATE TABLE IF NOT EXISTS configuracoes (
+                id INTEGER PRIMARY KEY, nome_empresa TEXT, subtitulo TEXT, contato TEXT, logo_base64 TEXT);"""
+      )
+      db.execute(
+          "INSERT OR IGNORE INTO configuracoes (id, nome_empresa, subtitulo)"
+          " VALUES (1, 'Manutenção Predial', 'Gestão Operacional')"
+      )
+      db.execute("""CREATE TABLE IF NOT EXISTS usuarios (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, usuario TEXT UNIQUE NOT NULL, senha TEXT NOT NULL, nome TEXT NOT NULL,
+                nivel TEXT DEFAULT 'comum', foto_base64 TEXT);""")
+      if not db.execute(
+          "SELECT id FROM usuarios WHERE usuario = 'admin'"
+      ).fetchone():
+        db.execute(
+            "INSERT INTO usuarios (usuario, senha, nome, nivel) VALUES"
+            " ('admin', ?, 'Administrador Principal', 'admin')",
+            (generate_password_hash("12345"),),
+        )
 
 
 init_db()
 
 
 def verificar_gerar_preventivas():
-  hoje_iso = datetime.now().strftime("%Y-%m-%d")
+  hoje = datetime.now().strftime("%Y-%m-%d")
   with get_db() as db:
-    pendentes = db.execute(
+    for p in db.execute(
         "SELECT * FROM preventivas WHERE ativo = 1 AND proxima_data <= ?",
-        (hoje_iso,),
-    ).fetchall()
-    for p in pendentes:
-      agora_str = datetime.now().strftime("%d/%m/%Y %H:%M")
-      desc_os = (
-          f"[REVISÃO PREVENTIVA PROGRAMADA - A CADA {p['periodicidade_dias']}"
-          f" DIAS]\n{p['descricao']}"
-      )
-      solic = f"Preventiva ({p['solicitante']})"
-
+        (hoje,),
+    ).fetchall():
+      agora = datetime.now().strftime("%d/%m/%Y %H:%M")
       db.execute(
-          """
-                INSERT INTO ordens_servico (equipamento, solicitante, problema, data_abertura, status, foto_problema)
-                VALUES (?, ?, ?, ?, 'ABERTA', '')
-            """,
-          (p["equipamento"], solic, desc_os, agora_str),
+          "INSERT INTO ordens_servico (equipamento, solicitante, problema,"
+          " data_abertura, status, foto_problema) VALUES (?, ?, ?, ?,"
+          " 'ABERTA', '')",
+          (
+              p["equipamento"],
+              f"Preventiva ({p['solicitante']})",
+              f"[ROTINA PREVENTIVA - A CADA {p['periodicidade_dias']} DIAS]\n"
+              + p["descricao"],
+              agora,
+          ),
       )
-
       try:
         dt_base = datetime.strptime(p["proxima_data"], "%Y-%m-%d")
       except Exception:
         dt_base = datetime.now()
-
       dias = int(p["periodicidade_dias"]) if p["periodicidade_dias"] > 0 else 30
-      while dt_base.strftime("%Y-%m-%d") <= hoje_iso:
+      while dt_base.strftime("%Y-%m-%d") <= hoje:
         dt_base += timedelta(days=dias)
-
       db.execute(
-          """
-                UPDATE preventivas 
-                SET proxima_data = ?, ultima_geracao = ? 
-                WHERE id = ?
-            """,
-          (dt_base.strftime("%Y-%m-%d"), hoje_iso, p["id"]),
+          "UPDATE preventivas SET proxima_data = ?, ultima_geracao = ? WHERE id"
+          " = ?",
+          (dt_base.strftime("%Y-%m-%d"), hoje, p["id"]),
       )
 
 
 def obter_configuracoes():
   with get_db() as db:
-    cfg = db.execute("SELECT * FROM configuracoes WHERE id = 1").fetchone()
-  return cfg
+    return db.execute("SELECT * FROM configuracoes WHERE id = 1").fetchone()
 
 
 def montar_texto_whatsapp(os_item, cfg):
   empresa = cfg["nome_empresa"] if cfg else "Manutenção Predial"
-  msg = f"""*COMPROVANTE DE MANUTENÇÃO* 🛠️
+  linhas = [
+      "*COMPROVANTE DE MANUTENÇÃO* 🛠️",
+      "-----------------------------------",
+      "🏢 *Empresa:* " + str(empresa),
+      "📋 *OS Nº:* #" + f"{os_item['id']:05d}",
+      "📌 *Status:* " + str(os_item["status"]),
+      "",
+      "🔧 *Equipamento/Local:* " + str(os_item["equipamento"]),
+      "👤 *Solicitante:* " + str(os_item["solicitante"]),
+      "👷 *Técnico:* " + str(os_item["operador"] or "Não atribuído"),
+      "📅 *Data Conclusão:* "
+      + str(os_item["data_finalizacao"] or os_item["data_abertura"]),
+      "",
+      "⚠️ *Defeito Informado:*",
+      str(os_item["problema"]),
+      "",
+      "✅ *Serviço Realizado:*",
+      str(os_item["servico_executado"] or "Em andamento"),
+      "",
+      "📦 *Peças/Insumos:*",
+      str(os_item["pecas"] or "Nenhum material extra cadastrado"),
+      "-----------------------------------",
+      "_Comprovante emitido via Sistema de Manutenção_",
+  ]
+  return "\n".join(linhas)
+
+
+@app.context_processor
+def injetar_usuario():
+  info = {
+      "usuario_logado_info": None,
+      "modo_nuvem": IS_POSTGRES,
+      "ultimo_id_sistema": 0,
+      "eh_admin": False,
+  }
+  if "usuario" in session:
+    with get_db() as db:
+      u = db.execute(
+          "SELECT * FROM usuarios WHERE usuario = ?", (session["usuario"],)
+      ).fetchone()
+      info["usuario_logado_info"] = u
+      if u:
+        info["eh_admin"] = u["usuario"] == "admin" or u["nivel"] == "admin"
+      info["ultimo_id_sistema"] = db.execute(
+          "SELECT COALESCE(MAX(id), 0) FROM ordens_servico"
+      ).fetchone()[0]
+  return info
+
+
+@app.before_request
+def checar_auth():
+  rotas = [
+      "login",
+      "static",
+      "recibo",
+      "ping",
+      "api_status_sync",
+      "compartilhar_whatsapp",
+  ]
+  if request.endpoint not in rotas and "usuario" not in session:
+    return redirect(url_for("login"))
+
+
+@app.route("/ping")
+def ping():
+  return "pong", 200
+
+
+@app.errorhandler(Exception)
+def tratar_erro(e):
+  return (
+      f"
