@@ -60,49 +60,10 @@ jobs:
           export GRADLE_OPTS="-Dorg.gradle.jvmargs=-Xmx2048m -Dorg.gradle.daemon=false"
 
           buildozer -v android debug > build.log 2>&1 || {
-            python3 -c '
-          import os, re
-          log_file = "build.log"
-          if not os.path.exists(log_file):
-              exit(1)
-          with open(log_file, "r", errors="ignore") as f:
-              content = f.read()
-
-          patterns = [
-              r"FAILURE: Build failed with an exception\..*?(?=\n\n\n|\Z)",
-              r"\* What went wrong:.*?(?=\n\* Try:|\Z)",
-              r"> Task :[^\n]* FAILED.*?(?=\n\n|\Z)",
-              r"Execution failed for task.*?(?=\n\n|\Z)"
-          ]
-          extracted = ""
-          for p in patterns:
-              m = re.search(p, content, re.DOTALL)
-              if m:
-                  extracted = m.group(0).strip()
-                  break
-
-          if not extracted:
-              lines = content.splitlines()
-              cmd_idx = -1
-              for i, l in enumerate(lines):
-                  if "# Command failed:" in l:
-                      cmd_idx = i
-                      break
-              if cmd_idx != -1:
-                  start = max(0, cmd_idx - 60)
-                  extracted = "\n".join(lines[start:cmd_idx])
-              else:
-                  extracted = "\n".join(lines[-60:])
-
-          print("\n==================== [ERRO REAL DO GRADLE] ====================")
-          print(extracted[:3000])
-          print("===============================================================\n")
-
-          summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
-          if summary_path:
-              with open(summary_path, "a", encoding="utf-8") as sf:
-                  sf.write("### 🚨 Erro do Gradle Detectado:\n```text\n" + extracted[:3000] + "\n```\n")
-          '
+            echo ""
+            echo "==================== [REGISTRO DE ERRO FILTRADO] ===================="
+            grep -v -E "^\s*#\s+[A-Za-z0-9_]+ = " build.log | tail -n 60
+            echo "======================================================================"
             exit 1
           }
 
