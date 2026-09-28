@@ -55,7 +55,7 @@ android.apptheme = @android:style/Theme.NoTitleBar
 android.archs = arm64-v8a
 
 # (bool) Desativado para compatibilidade nativa
-android.enable_androidx = False
+android.enable_androidx = true
 
 # (bool) Copiar bibliotecas compiladas
 android.copy_libs = 1
