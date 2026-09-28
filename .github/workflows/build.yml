@@ -13,15 +13,59 @@ jobs:
       - name: Obter codigo do repositorio
         uses: actions/checkout@v4
 
-      - name: Compilar APK com Buildozer
-        uses: ArtemSBulgakov/buildozer-action@v1
-        id: buildozer
+      - name: Configurar Python
+        uses: actions/setup-python@v5
         with:
-          workdir: .
-          buildozer_version: master
+          python-version: "3.11"
+
+      - name: Configurar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Instalar dependencias do sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            git \
+            ffmpeg \
+            libsdl2-dev \
+            libsdl2-image-dev \
+            libsdl2-mixer-dev \
+            libsdl2-ttf-dev \
+            libportmidi-dev \
+            libswscale-dev \
+            libavformat-dev \
+            libavcodec-dev \
+            zlib1g-dev \
+            libgstreamer1.0-dev \
+            gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good \
+            libncurses5 \
+            libffi-dev \
+            libssl-dev \
+            autoconf \
+            libtool \
+            pkg-config \
+            cmake \
+            ccache \
+            zip \
+            unzip
+
+      - name: Instalar Buildozer e Cython compativel
+        run: |
+          python -m pip install --upgrade pip
+          pip install --upgrade buildozer "Cython<3.0" virtualenv
+
+      - name: Compilar APK com Buildozer
+        run: |
+          buildozer -v android debug
 
       - name: Disponibilizar APK para descarregar
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: Manutencao_Pro_APK
           path: bin/*.apk
