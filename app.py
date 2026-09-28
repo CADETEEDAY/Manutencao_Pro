@@ -223,20 +223,37 @@ BASE_HTML = """<!DOCTYPE html>
 <head>
     <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ cfg['nome_empresa'] }}</title>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,500,1,0" />
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        body { background:#f8f9ff; font-family:'Plus Jakarta Sans',sans-serif; margin:0; padding-bottom:95px; }
-        .m3-bar { background:#fff; padding:12px 18px; border-bottom:1px solid #c3c7d0; position:sticky; top:0; z-index:100; }
-        .m3-icon { background:#e0edff; color:#004c78; width:40px; height:40px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; text-decoration:none; border:none; }
-        .m3-icon.danger { background:#ffe0e0; color:#ba1a1a; }
-        .m3-card { background:#fff; border-radius:20px; border:1px solid #c3c7d0; box-shadow:0 2px 6px rgba(0,0,0,0.04); padding:20px; }
-        .m3-btn { background:#00639b; color:#fff; border:none; border-radius:50px; padding:10px 20px; font-weight:600; text-decoration:none; display:inline-flex; align-items:center; gap:8px; }
-        .m3-btn-sec { background:#e0edff; color:#001d33; border:none; border-radius:50px; padding:8px 16px; font-weight:600; text-decoration:none; display:inline-flex; align-items:center; gap:6px; }
-        .m3-input { background:#f2f3f9; border:1px solid #c3c7d0; border-radius:12px; padding:12px; width:100%; font-weight:500; margin-bottom:12px; }
-        .m3-fab { position:fixed; bottom:24px; right:24px; background:#cee5ff; color:#001d33; border-radius:30px; padding:14px 22px; font-weight:700; text-decoration:none; box-shadow:0 4px 12px rgba(0,0,0,0.15); z-index:90; }
-        #toastNotif { position:fixed; top:18px; left:50%; transform:translateX(-50%); z-index:999; width:90%; max-width:440px; background:#fff; border:2px solid #00639b; border-radius:18px; padding:14px; display:none; box-shadow:0 10px 25px rgba(0,0,0,0.2); }
+        :root {
+            --m3-primary: #00639b;
+            --m3-on-primary: #ffffff;
+            --m3-primary-container: #cce5ff;
+            --m3-on-primary-container: #001d33;
+            --m3-surface: #f8f9ff;
+            --m3-surface-card: #ffffff;
+            --m3-outline: #72777f;
+            --m3-outline-variant: #c3c7d0;
+        }
+        body { background: var(--m3-surface); font-family: 'Plus Jakarta Sans', sans-serif; margin: 0; padding-bottom: 95px; color: #1a1c1e; }
+        .m3-bar { background: #fff; padding: 12px 18px; border-bottom: 1px solid var(--m3-outline-variant); position: sticky; top: 0; z-index: 100; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+        .m3-icon { background: #e0edff; color: #004c78; width: 42px; height: 42px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; border: none; transition: 0.2s; }
+        .m3-icon:hover { background: #cce5ff; }
+        .m3-icon.danger { background: #ffe0e0; color: #ba1a1a; }
+        .m3-card { background: var(--m3-surface-card); border-radius: 20px; border: 1px solid var(--m3-outline-variant); box-shadow: 0 2px 6px rgba(0,0,0,0.04); padding: 20px; }
+        .m3-btn { background: var(--m3-primary); color: #fff; border: none; border-radius: 50px; padding: 10px 22px; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; transition: 0.2s; }
+        .m3-btn:hover { background: #004c78; color: #fff; }
+        .m3-btn-sec { background: #e0edff; color: #001d33; border: none; border-radius: 50px; padding: 8px 18px; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+        .m3-btn-sec:hover { background: #cce5ff; color: #001d33; }
+        .m3-input { background: #f2f3f9; border: 1px solid var(--m3-outline-variant); border-radius: 12px; padding: 12px 14px; width: 100%; font-weight: 500; margin-bottom: 12px; outline: none; }
+        .m3-input:focus { border-color: var(--m3-primary); background: #fff; }
+        .m3-fab { position: fixed; bottom: 24px; right: 24px; background: var(--m3-primary-container); color: var(--m3-on-primary-container); border-radius: 30px; padding: 14px 24px; font-weight: 700; text-decoration: none; box-shadow: 0 4px 14px rgba(0,0,0,0.18); z-index: 90; display: inline-flex; align-items: center; gap: 8px; transition: 0.2s; }
+        .m3-fab:hover { transform: scale(1.03); color: var(--m3-on-primary-container); }
+        #toastNotif { position: fixed; top: 18px; left: 50%; transform: translateX(-50%); z-index: 999; width: 90%; max-width: 440px; background: #fff; border: 2px solid var(--m3-primary); border-radius: 18px; padding: 14px; display: none; box-shadow: 0 10px 25px rgba(0,0,0,0.2); }
+        .badge-aberta { background: #ffe1be; color: #7a3e00; border-radius: 50px; padding: 4px 10px; font-weight: 600; font-size: 11px; }
+        .badge-concluida { background: #c8eed0; color: #0b5320; border-radius: 50px; padding: 4px 10px; font-weight: 600; font-size: 11px; }
     </style>
 </head>
 <body>
@@ -312,20 +329,21 @@ INDEX_BODY = """
 <td>{% if os['foto_problema'] %}<img src="{{ os['foto_problema'] }}" style="width:36px;height:36px;object-fit:cover;border-radius:6px;cursor:pointer;" onclick="window.open('{{ os['foto_problema'] }}')">{% else %}<span class="text-muted">-</span>{% endif %}</td>
 <td class="fw-bold">{{ os['equipamento'] }}</td><td>{{ os['solicitante'] }}</td>
 <td>{{ os['operador'] or 'Pendente' }}</td>
-<td><span class="badge {{ 'bg-warning text-dark' if os['status']=='ABERTA' else 'bg-success' }}">{{ os['status'] }}</span></td>
+<td><span class="{{ 'badge-aberta' if os['status']=='ABERTA' else 'badge-concluida' }}">{{ os['status'] }}</span></td>
 <td class="text-end pe-3">
-{% if os['status']=='ABERTA' %}<a href="/finalizar/{{ os['id'] }}" class="btn btn-sm btn-primary rounded-pill px-2">Executar</a>
-{% else %}<a href="/recibo/{{ os['id'] }}" class="btn btn-sm btn-secondary rounded-pill px-2">Recibo</a>{% endif %}
+{% if os['status']=='ABERTA' %}<a href="/finalizar/{{ os['id'] }}" class="btn btn-sm btn-primary rounded-pill px-3">Executar</a>
+{% else %}<a href="/recibo/{{ os['id'] }}" class="btn btn-sm btn-secondary rounded-pill px-3">Recibo</a>{% endif %}
 <a href="/excluir/{{ os['id'] }}" class="btn btn-sm btn-outline-danger rounded-pill px-2" onclick="return confirm('Excluir OS?');">X</a>
-</td></tr>{% else %}<tr><td colspan="7" class="text-center py-4 text-muted">Nenhuma ordem de serviço.</td></tr>{% endfor %}</tbody></table></div>
+</td></tr>{% else %}<tr><td colspan="7" class="text-center py-4 text-muted">Nenhuma ordem de serviço registrada.</td></tr>{% endfor %}</tbody></table></div>
 <script>function filtrar(){let q=document.getElementById('filtro').value.toLowerCase();document.querySelectorAll('.linha-os').forEach(r=>{r.style.display=r.innerText.toLowerCase().includes(q)?'':'none';});}</script>
 """
 
 LOGIN_HTML = """<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Login</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-<style>body{background:#f8f9ff;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;font-family:sans-serif;} .card{background:#fff;border-radius:24px;border:1px solid #c3c7d0;max-width:380px;width:100%;padding:30px;box-shadow:0 4px 15px rgba(0,0,0,0.05);}</style>
+<style>body{background:#f8f9ff;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;font-family:'Plus Jakarta Sans',sans-serif;} .card{background:#fff;border-radius:24px;border:1px solid #c3c7d0;max-width:380px;width:100%;padding:32px;box-shadow:0 4px 15px rgba(0,0,0,0.05);}</style>
 </head><body><div class="card text-center">
-<h4 class="fw-bold mb-1">{{ cfg['nome_empresa'] }}</h4><small class="text-muted d-block mb-3">Acesso ao Painel</small>
+<h4 class="fw-bold mb-1 text-primary">{{ cfg['nome_empresa'] }}</h4><small class="text-muted d-block mb-3">Painel de Manutenção</small>
 {% if erro %}<div class="alert alert-danger py-1 small rounded-3">{{ erro }}</div>{% endif %}
 <form method="POST"><input type="text" name="usuario" class="form-control mb-2 rounded-3" placeholder="Usuário" required autofocus>
 <input type="password" name="senha" class="form-control mb-3 rounded-3" placeholder="Senha" required>
