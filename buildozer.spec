@@ -36,13 +36,10 @@ android.api = 33
 # (int) Versao minima da API suportada
 android.minapi = 21
 
-# (int) Versao da API do NDK
-android.ndk_api = 21
-
 # (str) Versao estavel e compativel do NDK
 android.ndk = 25b
 
-# (bool) Aceitar licenças automaticamente
+# (bool) Aceitar licencas automaticamente
 android.accept_sdk_license = True
 
 # (str) Ponto de entrada nativo do Kivy
@@ -51,17 +48,20 @@ android.entrypoint = org.kivy.android.PythonActivity
 # (str) Tema visual nativo compativel
 android.apptheme = @android:style/Theme.NoTitleBar
 
-# (list) Arquitetura suportada
+# (list) Arquitetura suportada (64 bits)
 android.archs = arm64-v8a
 
-# (bool) Desativado para compatibilidade nativa
-android.enable_androidx = true
+# (bool) Ativado para compatibilidade com o p4a v2024.01.21
+android.enable_androidx = True
 
 # (bool) Copiar bibliotecas compiladas
 android.copy_libs = 1
 
 # (bool) Manter janela ativa
 android.window = 1
+
+# (str) Versao estavel do python-for-android
+p4a.branch = v2024.01.21
 
 [buildozer]
 
