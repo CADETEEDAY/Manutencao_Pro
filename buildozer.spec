@@ -19,7 +19,6 @@ source.include_exts = py,png,jpg,kv,atlas,html,css,js,db,sqlite3
 version = 1.0.0
 
 # (list) Dependências da aplicação
-# Nota: weasyprint e psycopg2 ficam de fora para evitar erros de compilação C/NDK
 requirements = python3,kivy,flask,jinja2,werkzeug,markupsafe,itsdangerous,pyjnius,android
 
 # (str) Orientação suportada (portrait, landscape ou all)
@@ -34,8 +33,11 @@ android.minapi = 21
 # (int) Versão alvo da API do Android
 android.api = 33
 
-# (list) Arquiteturas suportadas
-android.archs = arm64-v8a, armeabi-v7a
+# (str) Versão estável do NDK recomendada para compilação móvel
+android.ndk = 25b
+
+# (list) Arquitetura suportada (apenas 64 bits para evitar erros e compilar mais rápido)
+android.archs = arm64-v8a
 
 # (bool) Se o ecrã deve manter-se sempre ativo
 android.wakelock = False
