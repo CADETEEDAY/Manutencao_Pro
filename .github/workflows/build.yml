@@ -34,12 +34,13 @@ jobs:
             python3-pip python3-setuptools python3-virtualenv \
             autoconf libtool pkg-config zlib1g-dev \
             libncurses5-dev libncursesw5-dev libtinfo6 \
-            cmake libffi-dev libssl-dev automake
+            cmake libffi-dev libssl-dev automake \
+            libltdl-dev ccache
 
       - name: Instalar Buildozer e Cython
         run: |
-          python -m pip install --upgrade pip
-          pip install buildozer cython==0.29.36 virtualenv
+          python -m pip install --upgrade pip setuptools wheel
+          pip install "buildozer==1.5.0" "cython==0.29.36"
 
       - name: Cache do Buildozer
         uses: actions/cache@v4
@@ -60,13 +61,14 @@ jobs:
         run: |
           export PATH=$JAVA_HOME/bin:$PATH
           unset ANDROID_NDK_HOME ANDROID_NDK_ROOT ANDROID_NDK ANDROID_NDK_LATEST_HOME
-          buildozer -v android debug 2>&1 | tee build.log
+          printf 'y\ny\ny\n' | buildozer -v android debug 2>&1 | tee build.log
+          exit ${PIPESTATUS[1]}
 
       - name: Mostrar últimas linhas do log em caso de falha
         if: failure()
         run: |
-          echo "===== Últimas 200 linhas do log ====="
-          tail -n 200 build.log || true
+          echo "===== Últimas 300 linhas do log ====="
+          tail -n 300 build.log || true
 
       - name: Upload do APK
         if: success()
