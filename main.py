@@ -13,7 +13,7 @@ def run_flask():
 
 class MainApp(App):
     def build(self):
-        # 1. Permissoes em tempo de execucao
+        # 1. Permissoes em tempo de execucao no Android
         if platform == "android":
             from android.permissions import request_permissions, Permission
             request_permissions([
@@ -22,12 +22,12 @@ class MainApp(App):
                 Permission.WRITE_EXTERNAL_STORAGE
             ])
 
-        # 2. Inicia o Flask
+        # 2. Inicia o servidor Flask
         flask_thread = threading.Thread(target=run_flask)
         flask_thread.daemon = True
         flask_thread.start()
 
-        # 3. Aguarda o servidor
+        # 3. Aguarda resposta do servidor local
         url = "http://127.0.0.1:5000"
         for _ in range(30):
             try:
@@ -36,13 +36,13 @@ class MainApp(App):
             except Exception:
                 time.sleep(0.5)
 
-        # 4. Configura o WebView com o CustomWebChromeClient
+        # 4. Configura o WebView nativo com suporte a ficheiros e aplicacoes externas
         if platform == "android":
             from jnius import autoclass
             from android.runnable import run_on_ui_thread
 
             WebView = autoclass("android.webkit.WebView")
-            WebViewClient = autoclass("android.webkit.WebViewClient")
+            CustomWebViewClient = autoclass("org.cadeteeday.manutencaopro.CustomWebViewClient")
             CustomWebChromeClient = autoclass("org.cadeteeday.manutencaopro.CustomWebChromeClient")
             activity = autoclass("org.kivy.android.PythonActivity").mActivity
 
@@ -60,7 +60,8 @@ class MainApp(App):
                 settings.setAllowUniversalAccessFromFileURLs(True)
                 settings.setMediaPlaybackRequiresUserGesture(False)
 
-                webview.setWebViewClient(WebViewClient())
+                # Define os clientes customizados para WhatsApp e Camara/Galeria
+                webview.setWebViewClient(CustomWebViewClient(activity))
                 webview.setWebChromeClient(CustomWebChromeClient(activity))
 
                 activity.setContentView(webview)
