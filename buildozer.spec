@@ -1,75 +1,55 @@
 [app]
 
-# (str) Titulo da aplicacao
+# (str) Título da aplicação
 title = Manutencao Pro
 
-# (str) Nome do pacote
-package.name = manutencao
+# (str) Nome do pacote (apenas letras minúsculas e sem espaços)
+package.name = manutencaopro
 
-# (str) Dominio do pacote
-package.domain = org.manutencao
+# (str) Domínio do pacote (inverso)
+package.domain = org.cadeteeday
 
-# (str) Diretorio do codigo-fonte
+# (str) Diretoria onde se encontra o código-fonte (raiz)
 source.dir = .
 
-# (list) Extensoes incluidas
-source.include_exts = py,png,jpg,kv,atlas
+# (list) Extensões de ficheiros a incluir no pacote final
+source.include_exts = py,png,jpg,kv,atlas,html,css,js,db,sqlite3
 
-# (list) Arquivos a EXCLUIR do pacote Android (impede o servidor de ir para o APK)
-source.exclude_patterns = app.py,requirements.txt,Procfile,README.md,*.db
-
-# (str) Versao da aplicacao
+# (str) Versão da aplicação
 version = 1.0.0
 
-# (list) Dependencias da aplicacao
-requirements = python3,kivy
+# (list) Dependências da aplicação
+# Nota: weasyprint e psycopg2 ficam de fora para evitar erros de compilação C/NDK
+requirements = python3,kivy,flask,jinja2,werkzeug,markupsafe,itsdangerous,pyjnius,android
 
-# (str) Orientacao
+# (str) Orientação suportada (portrait, landscape ou all)
 orientation = portrait
 
-# (bool) Ecra inteiro
-fullscreen = 0
+# (list) Permissões do Android
+android.permissions = INTERNET,ACCESS_NETWORK_STATE
 
-# (list) Permissoes do Android
-android.permissions = INTERNET,ACCESS_NETWORK_STATE,CAMERA,READ_EXTERNAL_STORAGE,WRITE_EXTERNAL_STORAGE,READ_MEDIA_IMAGES
-
-# (int) Versao da API de destino do Android
-android.api = 33
-
-# (int) Versao minima da API suportada
+# (int) Versão mínima da API do Android
 android.minapi = 21
 
-# (str) Versao estavel e compativel do NDK
-android.ndk = 25b
+# (int) Versão alvo da API do Android
+android.api = 33
 
-# (bool) Aceitar licencas automaticamente
+# (list) Arquiteturas suportadas
+android.archs = arm64-v8a, armeabi-v7a
+
+# (bool) Se o ecrã deve manter-se sempre ativo
+android.wakelock = False
+
+# (bool) Aceitar automaticamente as licenças do SDK do Android
 android.accept_sdk_license = True
 
-# (str) Ponto de entrada nativo do Kivy
-android.entrypoint = org.kivy.android.PythonActivity
-
-# (str) Tema visual nativo compativel
-android.apptheme = @android:style/Theme.NoTitleBar
-
-# (list) Arquitetura suportada (64 bits)
-android.archs = arm64-v8a
-
-# (bool) Ativado para compatibilidade com o p4a v2024.01.21
-android.enable_androidx = True
-
-# (bool) Copiar bibliotecas compiladas
-android.copy_libs = 1
-
-# (bool) Manter janela ativa
-android.window = 1
-
-# (str) Versao estavel do python-for-android
-p4a.branch = v2024.01.21
+# (bool) Ecrã inteiro
+fullscreen = 0
 
 [buildozer]
 
-# (int) Nivel de registos
+# (int) Nível de registo / detalhe da consola (2 = detalhado para depuração)
 log_level = 2
 
-# (int) Aviso de root
-warn_on_root = 1
+# (int) Aviso ao executar como superutilizador (0 = desativado)
+warn_on_root = 0
