@@ -49,6 +49,13 @@ jobs:
 
       - name: Compilar APK com Buildozer
         run: |
+          # Limpa as variaveis de NDK do runner do GitHub para eliminar o conflito
+          unset ANDROID_NDK
+          unset ANDROID_NDK_HOME
+          unset ANDROID_NDK_ROOT
+          unset ANDROID_NDK_LATEST_HOME
+          export GRADLE_OPTS="-Dorg.gradle.jvmargs=-Xmx2048m -Dorg.gradle.daemon=false"
+
           buildozer -v android debug
 
       - name: Disponibilizar APK para descarregar
