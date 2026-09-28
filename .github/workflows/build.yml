@@ -59,9 +59,17 @@ jobs:
           JAVA_HOME: /usr/lib/jvm/temurin-17-jdk-amd64
         run: |
           export PATH=$JAVA_HOME/bin:$PATH
-          yes | buildozer -v android debug
+          unset ANDROID_NDK_HOME ANDROID_NDK_ROOT ANDROID_NDK ANDROID_NDK_LATEST_HOME
+          buildozer -v android debug 2>&1 | tee build.log
+
+      - name: Mostrar últimas linhas do log em caso de falha
+        if: failure()
+        run: |
+          echo "===== Últimas 200 linhas do log ====="
+          tail -n 200 build.log || true
 
       - name: Upload do APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: manutencao-pro-apk
