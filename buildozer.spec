@@ -12,38 +12,38 @@ package.domain = org.cadeteeday
 # (str) Diretorio raiz do codigo
 source.dir = .
 
-# (list) Extensoes incluidas
+# (list) Extensoes incluidas no pacote
 source.include_exts = py,png,jpg,kv,atlas,html,css,js,db,sqlite3
 
-# (str) Versao
-version = 1.0.0
+# (str) Versao atualizada para permitir instalacao direta
+version = 1.0.1
 
-# (list) Dependencias
+# (list) Dependencias da aplicacao
 requirements = python3,kivy,flask,jinja2,werkzeug,markupsafe,itsdangerous,pyjnius,android
 
-# (str) Orientacao
+# (str) Orientacao do ecra
 orientation = portrait
 
 # (list) Permissoes do Android
 android.permissions = INTERNET,ACCESS_NETWORK_STATE,CAMERA,READ_EXTERNAL_STORAGE,WRITE_EXTERNAL_STORAGE,READ_MEDIA_IMAGES
 
-# (str) Diretorio contendo arquivos Java auxiliares
+# (str) Diretorio contendo arquivos Java auxiliares (Camera, Galeria, WhatsApp e Impressao)
 android.add_src = src
 
-# (int) APIs do Android
+# (int) APIs do Android (34 compativel com as exigencias recentes do sistema)
 android.minapi = 21
-android.api = 33
+android.api = 34
 
-# (str) NDK compativel
+# (str) Versao compativel do NDK
 android.ndk = 25b
 
-# (list) Arquitetura 64 bits
+# (list) Arquitetura suportada (64 bits moderna)
 android.archs = arm64-v8a
 
 # (bool) Manter tela ligada
 android.wakelock = False
 
-# (bool) Aceitar licenca do SDK
+# (bool) Aceitar licenca do SDK Android
 android.accept_sdk_license = True
 
 # (bool) Tela cheia
