@@ -46,4 +46,11 @@ public class CustomWebViewClient extends WebViewClient {
 
         return false;
     }
+
+    @Override
+    public void onPageFinished(WebView view, String url) {
+        super.onPageFinished(view, url);
+        // Interceta chamadas de impressao da pagina Web e delega ao Android
+        view.loadUrl("javascript:(function() { window.print = function() { if (window.AndroidPrint) { window.AndroidPrint.print(); } }; })();");
+    }
 }
