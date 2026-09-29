@@ -13,7 +13,7 @@ def run_flask():
 
 class MainApp(App):
     def build(self):
-        # 1. Permissoes em tempo de execucao no Android
+        # 1. Permissoes em tempo de execucao
         if platform == "android":
             from android.permissions import request_permissions, Permission
             request_permissions([
@@ -27,7 +27,7 @@ class MainApp(App):
         flask_thread.daemon = True
         flask_thread.start()
 
-        # 3. Aguarda resposta do servidor local
+        # 3. Aguarda que o servidor responda
         url = "http://127.0.0.1:5000"
         for _ in range(30):
             try:
@@ -36,7 +36,7 @@ class MainApp(App):
             except Exception:
                 time.sleep(0.5)
 
-        # 4. Configura o WebView nativo com suporte a ficheiros e aplicacoes externas
+        # 4. Configura o WebView nativo com suporte a Camera, WhatsApp e Impressao PDF
         if platform == "android":
             from jnius import autoclass
             from android.runnable import run_on_ui_thread
@@ -44,6 +44,7 @@ class MainApp(App):
             WebView = autoclass("android.webkit.WebView")
             CustomWebViewClient = autoclass("org.cadeteeday.manutencaopro.CustomWebViewClient")
             CustomWebChromeClient = autoclass("org.cadeteeday.manutencaopro.CustomWebChromeClient")
+            PrintBridge = autoclass("org.cadeteeday.manutencaopro.PrintBridge")
             activity = autoclass("org.kivy.android.PythonActivity").mActivity
 
             @run_on_ui_thread
@@ -60,9 +61,10 @@ class MainApp(App):
                 settings.setAllowUniversalAccessFromFileURLs(True)
                 settings.setMediaPlaybackRequiresUserGesture(False)
 
-                # Define os clientes customizados para WhatsApp e Camara/Galeria
+                # Regista os clientes auxiliares e a interface de impressao/PDF
                 webview.setWebViewClient(CustomWebViewClient(activity))
                 webview.setWebChromeClient(CustomWebChromeClient(activity))
+                webview.addJavascriptInterface(PrintBridge(activity, webview), "AndroidPrint")
 
                 activity.setContentView(webview)
                 webview.loadUrl(url)
